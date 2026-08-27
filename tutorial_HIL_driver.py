@@ -11,17 +11,19 @@
 # =============================================================================
 # Tutorial: Chrono support for human-in-the-loop (HIL) simulation
 #
-# One script, four parts. Change the switches in the CONFIGURATION section at
+# One script, five parts. Change the switches in the CONFIGURATION section at
 # the bottom of the file to move from one part to the next.
 #
 #   PART 1: Keep the simulation real-time         (INPUT_SOURCE = "data")
 #   PART 2: A human on the keyboard               (INPUT_SOURCE = "keyboard")
 #   PART 3: Bring your own input device           (INPUT_SOURCE = "udp" | "gamepad")
 #   PART 4: Close the loop - feedback to operator (SEND_FEEDBACK = True)
+#   PART 5: Customize the built-in overlay        (SHOW_* switches, VEHICLE)
 #
-# The vehicle is an HMMWV on flat rigid terrain (same model as demo_VEH_HMMWV).
-# The vehicle reference frame has Z up, X towards the front of the vehicle, and
-# Y pointing to the left.
+# The vehicle defaults to an HMMWV on flat rigid terrain (same model as
+# demo_VEH_HMMWV) but VEHICLE can pick any of a few other Chrono::Vehicle
+# models - see build_vehicle() and PART 5 below. The vehicle reference frame
+# has Z up, X towards the front of the vehicle, and Y pointing to the left.
 # =============================================================================
 
 import math
@@ -200,35 +202,93 @@ class GamepadInput:
 
 
 # =============================================================================
+# PART 5: CHOOSE YOUR CAR
+# =============================================================================
+#
+# Every "full vehicle" model in Chrono::Vehicle (HMMWV_Full, Sedan, CityBus,
+# Gator, ...) exposes the same handful of setup calls and the same
+# GetVehicle() / GetSystem() / Synchronize() / Advance() interface. That means
+# the rest of this script (terrain, driver, vis, the simulation loop) does not
+# care which one you picked - only build_vehicle() knows the differences
+# between an HMMWV and a bus.
+
+
+def build_vehicle(name):
+    """Construct and initialize one of a few Chrono::Vehicle models.
+
+    Returns (vehicle_model, chase_distance): vehicle_model is the wrapper
+    object (what used to be called `hmmwv`); chase_distance is how far back
+    the camera should sit for a vehicle of that size.
+    """
+    if name == "hmmwv":
+        v = veh.HMMWV_Full()
+        v.SetContactMethod(chrono.ChContactMethod_SMC)
+        v.SetChassisCollisionType(veh.CollisionType_NONE)
+        v.SetChassisFixed(False)
+        v.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(0, 0, 1.6), chrono.QUNIT))
+        v.SetEngineType(veh.EngineModelType_SHAFTS)
+        v.SetTransmissionType(veh.TransmissionModelType_AUTOMATIC_SHAFTS)
+        v.SetDriveType(veh.DrivelineTypeWV_AWD)
+        v.SetSteeringType(veh.SteeringTypeWV_PITMAN_ARM)
+        v.SetTireType(tire_model)
+        v.SetTireStepSize(tire_step_size)
+        v.Initialize()
+        chase_dist = 6.0
+
+    elif name == "sedan":
+        v = veh.Sedan()
+        v.SetContactMethod(chrono.ChContactMethod_SMC)
+        v.SetChassisFixed(False)
+        v.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(0, 0, 0.5), chrono.QUNIT))
+        v.SetTireType(tire_model)
+        v.SetTireStepSize(tire_step_size)
+        v.Initialize()
+        chase_dist = 6.0
+
+    elif name == "citybus":
+        v = veh.CityBus()
+        v.SetContactMethod(chrono.ChContactMethod_SMC)
+        v.SetChassisFixed(False)
+        v.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(0, 0, 0.5), chrono.QUNIT))
+        v.SetTireType(tire_model)
+        v.SetTireStepSize(tire_step_size)
+        v.Initialize()
+        chase_dist = 15.0
+
+    elif name == "gator":
+        v = veh.Gator()
+        v.SetContactMethod(chrono.ChContactMethod_SMC)
+        v.SetChassisFixed(False)
+        v.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(0, 0, 0.4), chrono.QUNIT))
+        v.SetTireType(tire_model)
+        v.SetTireStepSize(tire_step_size)
+        v.Initialize()
+        chase_dist = 6.0
+
+    else:
+        raise ValueError(f"unknown VEHICLE {name!r}")
+
+    v.SetChassisVisualizationType(chrono.VisualizationType_MESH)
+    v.SetSuspensionVisualizationType(chrono.VisualizationType_PRIMITIVES)
+    v.SetSteeringVisualizationType(chrono.VisualizationType_PRIMITIVES)
+    v.SetWheelVisualizationType(chrono.VisualizationType_MESH)
+    v.SetTireVisualizationType(chrono.VisualizationType_MESH)
+    return v, chase_dist
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
 
 def main():
     # -----------------------------------------------------------------------
-    # Create the HMMWV vehicle, set parameters, and initialize
+    # Create the vehicle (PART 5) and initialize
     # -----------------------------------------------------------------------
-    hmmwv = veh.HMMWV_Full()
-    hmmwv.SetContactMethod(chrono.ChContactMethod_SMC)
-    hmmwv.SetChassisCollisionType(veh.CollisionType_NONE)
-    hmmwv.SetChassisFixed(False)
-    hmmwv.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(0, 0, 1.6), chrono.QUNIT))
-    hmmwv.SetEngineType(veh.EngineModelType_SHAFTS)
-    hmmwv.SetTransmissionType(veh.TransmissionModelType_AUTOMATIC_SHAFTS)
-    hmmwv.SetDriveType(veh.DrivelineTypeWV_AWD)
-    hmmwv.SetSteeringType(veh.SteeringTypeWV_PITMAN_ARM)
-    hmmwv.SetTireType(tire_model)
-    hmmwv.SetTireStepSize(tire_step_size)
-    hmmwv.Initialize()
+    vehicle_model, chase_dist = build_vehicle(VEHICLE)
 
-    hmmwv.SetChassisVisualizationType(chrono.VisualizationType_MESH)
-    hmmwv.SetSuspensionVisualizationType(chrono.VisualizationType_PRIMITIVES)
-    hmmwv.SetSteeringVisualizationType(chrono.VisualizationType_PRIMITIVES)
-    hmmwv.SetWheelVisualizationType(chrono.VisualizationType_MESH)
-    hmmwv.SetTireVisualizationType(chrono.VisualizationType_MESH)
-
-    vehicle = hmmwv.GetVehicle()
-    system = hmmwv.GetSystem()
+    vehicle = vehicle_model.GetVehicle()
+    system = vehicle_model.GetSystem()
     system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
 
     # -----------------------------------------------------------------------
@@ -291,9 +351,9 @@ def main():
     # Create the vehicle Irrlicht interface
     # -----------------------------------------------------------------------
     vis = veh.ChWheeledVehicleVisualSystemIrrlicht()
-    vis.SetWindowTitle("HMMWV - human in the loop")
+    vis.SetWindowTitle(f"{VEHICLE} - human in the loop")
     vis.SetWindowSize(1280, 800)
-    vis.SetChaseCamera(chrono.ChVector3d(0.0, 0.0, 1.75), 6.0, 0.5)
+    vis.SetChaseCamera(chrono.ChVector3d(0.0, 0.0, 1.75), chase_dist, 0.5)
     vis.Initialize()
     vis.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
     vis.AddLightDirectional()
@@ -301,6 +361,15 @@ def main():
     vis.AttachVehicle(vehicle)
     if INPUT_SOURCE == "keyboard":
         vis.AttachDriver(driver)  # route Irrlicht key events to the driver
+
+    # PART 5: the built-in overlay - nothing here is hand-drawn, every piece
+    # is a flag or a method on `vis` itself
+    vis.EnableStats(SHOW_VEHICLE_HUD)        # speed/steering/throttle/brake panel
+    vis.SetHUDLocation(*HUD_CORNER)          # where that panel sits
+    vis.ShowInfoPanel(SHOW_SIM_INFO_PANEL)   # Chrono's own tabbed info panel
+                                              # (bodies, contacts, timers); also
+                                              # toggles live with the 'i' key
+    vis.ShowProfiler(SHOW_PROFILER)          # per-module timing bars
 
     # -----------------------------------------------------------------------
     # Real-time setup (PART 1)
@@ -343,13 +412,13 @@ def main():
         # Update modules (process inputs from other modules)
         driver.Synchronize(sim_time)
         terrain.Synchronize(sim_time)
-        hmmwv.Synchronize(sim_time, driver_inputs, terrain)
+        vehicle_model.Synchronize(sim_time, driver_inputs, terrain)
         vis.Synchronize(sim_time, driver_inputs)
 
         # Advance simulation for one timestep for all modules
         driver.Advance(step_size)
         terrain.Advance(step_size)
-        hmmwv.Advance(step_size)  # spins here if REALTIME == "vehicle"
+        vehicle_model.Advance(step_size)  # spins here if REALTIME == "vehicle"
         vis.Advance(step_size)
 
         # Console report: how far is the sim from wall time?
@@ -378,6 +447,9 @@ def main():
 # CONFIGURATION
 # =============================================================================
 
+# PART 5: choose your car - "hmmwv" | "sedan" | "citybus" | "gator"
+VEHICLE = "hmmwv"
+
 # Where do the driver inputs come from?
 #   "data"      PART 1 - scripted ChDataDriver, no human
 #   "keyboard"  PART 2 - ChInteractiveDriver, arrow keys in the Irrlicht window
@@ -404,5 +476,12 @@ render_step_size = 1.0 / 50  # FPS = 50
 # PART 3 device settings
 UDP_PORT = 9870
 GAMEPAD_MAPPING = "xbox"  # "xbox" or "g29" - see probe_gamepad.py
+
+# PART 5: the built-in Irrlicht overlay - add or remove pieces of it here
+# instead of writing your own on top of the 3D view
+SHOW_VEHICLE_HUD = True         # speed/steering/throttle/brake panel
+HUD_CORNER = (10, 10)           # (x, y) pixels from the top-left corner
+SHOW_SIM_INFO_PANEL = False     # Chrono's tabbed info panel (bodies/contacts/timers)
+SHOW_PROFILER = False           # per-module timing bars
 
 main()

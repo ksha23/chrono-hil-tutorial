@@ -16,7 +16,7 @@ Files:
 
 | file | what it is |
 |---|---|
-| `tutorial_HIL_driver.py` | the tutorial (HMMWV on rigid terrain, Irrlicht window) |
+| `tutorial_HIL_driver.py` | the tutorial (HMMWV -- or `VEHICLE` of your choice -- on rigid terrain, Irrlicht window) |
 | `operator_console.py` | a pygame window that sends driver inputs over UDP and shows telemetry |
 | `probe_gamepad.py` | prints which SDL axis/button each control on your gamepad/wheel maps to |
 
@@ -31,6 +31,7 @@ All switches live in the `CONFIGURATION` section at the bottom of
 | 2. Human on the keyboard | `"keyboard"` | `"vehicle"` | `False` | arrow keys in the Irrlicht window drive the HMMWV |
 | 3. Bring your own device | `"udp"` (or `"gamepad"`) | `"vehicle"` | `False` | `operator_console.py` in a second terminal drives the HMMWV |
 | 4. Close the loop | `"udp"` | `"vehicle"` | `True` | operator console shows speed, RTF, lateral acceleration |
+| 5. Customize the overlay / choose your car | any | any | any | `SHOW_*` switches and `VEHICLE` (see below) |
 
 Part 3 with `"udp"` needs nothing but a second terminal:
 
@@ -42,9 +43,42 @@ python operator_console.py             # terminal 2 (or on another machine: pyth
 Part 3 with `"gamepad"` is optional and needs a gamepad or steering wheel. Run
 `probe_gamepad.py` to find the axis numbers and edit `GamepadInput.MAPPINGS`.
 
+## Part 5: customize the built-in overlay
+
+The Irrlicht window already ships with an on-screen HUD (the speed/steering/
+throttle/brake panel you've been watching in every part) plus Chrono's own
+tabbed info panel (bodies, contacts, timers) and a profiler. None of it is
+hand-drawn -- it's all flags and method calls on the `vis` object, so there is
+no need to build a custom overlay to add or remove pieces of it:
+
+| switch | method | what it does |
+|---|---|---|
+| `SHOW_VEHICLE_HUD` | `vis.EnableStats(bool)` | the speed/steering/throttle/brake panel |
+| `HUD_CORNER` | `vis.SetHUDLocation(x, y)` | where that panel sits on screen |
+| `SHOW_SIM_INFO_PANEL` | `vis.ShowInfoPanel(bool)` | Chrono's tabbed panel (bodies/contacts/timers) -- also toggles live with the `i` key while the sim is running |
+| `SHOW_PROFILER` | `vis.ShowProfiler(bool)` | per-module timing bars |
+
+Set `SHOW_VEHICLE_HUD = False` to remove the default panel entirely, or turn
+on `SHOW_SIM_INFO_PANEL` / `SHOW_PROFILER` to add Chrono's other built-in
+panels -- no new drawing code required either way.
+
+## Choose your car
+
+`VEHICLE` picks which Chrono::Vehicle model gets built -- `"hmmwv"` (default),
+`"sedan"`, `"citybus"`, or `"gator"`. `build_vehicle()` is the only place that
+knows the differences between them; everything else (terrain, driver, vis,
+the simulation loop) uses the same `GetVehicle()` / `GetSystem()` /
+`Synchronize()` / `Advance()` interface no matter which one you pick.
+
+```python
+VEHICLE = "citybus"  # try "hmmwv", "sedan", "citybus", "gator"
+```
+
 ## Things to try
 
 - `REALTIME = "none"` with `step_size = 5e-4`: RTF goes above 1 and no timer can save you.
 - Compare `drift` for `"per_step"` and `"cumulative"` over a few minutes.
 - Set `SmoothedInputs(gain=50.0)` in Part 3 and feel what raw inputs do to the suspension.
 - Unplug the network mid-run (or stop the operator console): the last input is held.
+- Set `VEHICLE = "citybus"` and try to drive the same scripted course as the HMMWV -- same driver, same terrain, very different vehicle.
+- `SHOW_SIM_INFO_PANEL = True` and press `i` while the sim is running: same panel, two ways to reach it.
