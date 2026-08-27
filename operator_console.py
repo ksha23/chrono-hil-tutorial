@@ -1,9 +1,12 @@
 # =============================================================================
-# Operator console for tutorial_HIL_driver.py (PART 3 and PART 4)
+# Operator console for tutorial_HIL_driver.py (PART 4)
 #
 # A small pygame window.  Hold the arrow keys to drive; the console sends
-# "steering,throttle,braking" over UDP at 50 Hz to the simulation and shows the
-# telemetry the simulation sends back (PART 4).
+# "steering,throttle,braking" over UDP at 50 Hz to the simulation and prints
+# the telemetry the simulation sends back (PART 4).  pygame is here only to
+# capture live keypresses in a second terminal/machine - the readout below is
+# plain text, not a hand-drawn dashboard; the sim's own Irrlicht window
+# already has a built-in one (see PART 5 in tutorial_HIL_driver.py).
 #
 #   python operator_console.py                # simulation on this machine
 #   python operator_console.py 192.168.1.20   # simulation on another machine
@@ -27,10 +30,9 @@ PEDAL_RATE = 2.0
 STEER_RETURN = 3.0   # steering self-centers when no key is held
 
 pygame.init()
-screen = pygame.display.set_mode((520, 300))
+screen = pygame.display.set_mode((480, 220))
 pygame.display.set_caption(f"Operator console -> {SIM_HOST}:{SIM_PORT}")
 font = pygame.font.SysFont("monospace", 18)
-big = pygame.font.SysFont("monospace", 40, bold=True)
 clock = pygame.time.Clock()
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -40,14 +42,8 @@ steering, throttle, braking = 0.0, 0.0, 0.0
 telemetry = None
 
 
-def bar(x, y, w, h, value, lo, hi, color, applied=None):
-    """Filled bar = what this console is sending; white tick = what the sim applied."""
-    pygame.draw.rect(screen, (60, 60, 60), (x, y, w, h))
-    frac = (value - lo) / (hi - lo)
-    pygame.draw.rect(screen, color, (x, y, int(w * frac), h))
-    if applied is not None:
-        ax = x + int(w * (applied - lo) / (hi - lo))
-        pygame.draw.rect(screen, (255, 255, 255), (ax - 2, y - 3, 4, h + 6))
+def line(y, text):
+    screen.blit(font.render(text, True, (220, 220, 220)), (20, y))
 
 
 running = True
@@ -89,27 +85,18 @@ while running:
         except (BlockingIOError, ValueError):
             break
 
-    # --- draw ---------------------------------------------------------------
+    # --- draw: plain text, nothing hand-drawn --------------------------------
     screen.fill((25, 25, 30))
-    screen.blit(font.render("arrows: drive   space: reset   esc: quit", True, (160, 160, 160)), (20, 15))
-    applied = telemetry[4:7] if telemetry and len(telemetry) >= 7 else (None, None, None)
-    screen.blit(font.render(f"steering {steering:+.2f}", True, (230, 230, 230)), (20, 55))
-    bar(200, 55, 300, 20, steering, -1, 1, (80, 160, 255), applied[0])
-    screen.blit(font.render(f"throttle {throttle:.2f}", True, (230, 230, 230)), (20, 85))
-    bar(200, 85, 300, 20, throttle, 0, 1, (80, 220, 120), applied[1])
-    screen.blit(font.render(f"braking  {braking:.2f}", True, (230, 230, 230)), (20, 115))
-    bar(200, 115, 300, 20, braking, 0, 1, (240, 90, 80), applied[2])
-    screen.blit(font.render("bar: sent   |: applied by the sim (smoothed)", True, (120, 120, 120)), (200, 138))
+    line(15, "arrows: drive   space: reset   esc: quit")
+    line(55, f"sent      steering {steering:+.2f}  throttle {throttle:.2f}  braking {braking:.2f}")
 
     if telemetry is None:
-        screen.blit(font.render("no telemetry (enable SEND_FEEDBACK in the sim)", True, (120, 120, 120)), (20, 170))
+        line(95, "no telemetry (enable SEND_FEEDBACK in the sim)")
     else:
-        t, speed, rtf, acc_y = telemetry[:4]
-        screen.blit(big.render(f"{speed * 3.6:5.1f} km/h", True, (255, 255, 255)), (20, 160))
-        col = (80, 220, 120) if rtf <= 1.0 else (240, 90, 80)
-        screen.blit(font.render(f"sim time {t:7.2f} s   RTF {rtf:.2f}", True, col), (20, 215))
-        screen.blit(font.render(f"lateral acc {acc_y:+5.2f} m/s^2", True, (230, 230, 230)), (20, 245))
-        bar(260, 245, 240, 18, acc_y, -8, 8, (200, 160, 60))
+        t, speed, rtf, acc_y, ap_steer, ap_thr, ap_brk = telemetry
+        line(95, f"applied   steering {ap_steer:+.2f}  throttle {ap_thr:.2f}  braking {ap_brk:.2f}")
+        line(135, f"speed {speed * 3.6:6.1f} km/h   sim time {t:7.2f} s   RTF {rtf:.2f}")
+        line(165, f"lateral acc {acc_y:+5.2f} m/s^2")
 
     pygame.display.flip()
 

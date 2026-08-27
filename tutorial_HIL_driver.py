@@ -14,11 +14,12 @@
 # One script, five parts. Change the switches in the CONFIGURATION section at
 # the bottom of the file to move from one part to the next.
 #
-#   PART 1: Keep the simulation real-time         (INPUT_SOURCE = "data")
-#   PART 2: A human on the keyboard               (INPUT_SOURCE = "keyboard")
-#   PART 3: Bring your own input device           (INPUT_SOURCE = "udp" | "gamepad")
-#   PART 4: Close the loop - feedback to operator (SEND_FEEDBACK = True)
-#   PART 5: Customize the built-in overlay        (SHOW_* switches, VEHICLE)
+#   PART 1: Keep the simulation real-time            (INPUT_SOURCE = "data")
+#   PART 2: A human on the keyboard                  (INPUT_SOURCE = "keyboard")
+#   PART 3: A gamepad or wheel, read natively         (INPUT_SOURCE = "gamepad")
+#   PART 4: A device Chrono doesn't know, and         (INPUT_SOURCE = "udp",
+#           closing the loop back to it                SEND_FEEDBACK = True)
+#   PART 5: Customize the built-in overlay            (SHOW_* switches, VEHICLE)
 #
 # The vehicle defaults to an HMMWV on flat rigid terrain (same model as
 # demo_VEH_HMMWV) but VEHICLE can pick any of a few other Chrono::Vehicle
@@ -73,14 +74,27 @@ class CumulativeRealtimeTimer:
 
 
 # =============================================================================
-# PART 3: BRING YOUR OWN INPUT DEVICE
+# PART 3: A GAMEPAD OR WHEEL, READ NATIVELY
+# =============================================================================
+#
+# ChInteractiveDriver already knows how to read a joystick - no pygame, no
+# custom polling class.  A JSON config file maps device axes/buttons to
+# steering/throttle/braking/clutch/shifting; Chrono ships four presets
+# (data/vehicle/joystick/controller_*.json) and you can write your own.
+# vis.SetJoystickDebug(True) prints live axis and button numbers twice a
+# second - the same job probe_gamepad.py used to do, built in.
+#
+# =============================================================================
+# PART 4: BRING A DEVICE CHRONO DOESN'T KNOW ABOUT
 # =============================================================================
 #
 # The whole "human interface" to a Chrono vehicle is three numbers per step:
 #     steering in [-1, 1], throttle in [0, 1], braking in [0, 1]
 # ChDriver is a plain container for those numbers with SetSteering(),
 # SetThrottle(), SetBraking().  Anything that can produce three floats can
-# drive the vehicle: a socket, a gamepad, a steering wheel, another process...
+# drive the vehicle - a socket, a phone, a ROS node, another machine on the
+# network - Chrono just doesn't ship a reader for it the way it does for a
+# joystick, so operator_console.py plays that role here.
 
 
 class SmoothedInputs:
@@ -157,48 +171,6 @@ class UdpInput:
     def send_feedback(self, text):
         if self.operator_addr is not None:
             self.sock.sendto(text.encode(), self.operator_addr)
-
-
-class GamepadInput:
-    """Read a gamepad or steering wheel through pygame (SDL).
-
-    No pygame window is needed for joysticks, so the Irrlicht window keeps the
-    keyboard focus.  Axis indices differ between devices - run probe_gamepad.py
-    to find yours, then edit the mapping below.
-    """
-
-    MAPPINGS = {
-        # name: (steer axis, throttle axis, brake axis, pedal_is_inverted)
-        "xbox": (0, 5, 2, False),  # left stick X, right trigger, left trigger
-        "g29": (0, 2, 3, True),    # wheel, gas pedal, brake pedal (rest at +1)
-    }
-
-    def __init__(self, mapping="xbox", index=0):
-        import pygame  # imported here so PART 1/2 do not need pygame installed
-
-        self.pygame = pygame
-        pygame.init()
-        pygame.joystick.init()
-        if pygame.joystick.get_count() == 0:
-            raise RuntimeError("No gamepad/wheel found. Use INPUT_SOURCE = 'udp' instead.")
-        self.js = pygame.joystick.Joystick(index)
-        self.js.init()
-        self.ax_steer, self.ax_thr, self.ax_brk, self.inverted = self.MAPPINGS[mapping]
-        print(f"[gamepad] using '{self.js.get_name()}' with mapping '{mapping}'")
-
-    def _pedal(self, axis):
-        v = self.js.get_axis(axis)  # -1..1
-        return (1.0 - v) / 2.0 if self.inverted else (v + 1.0) / 2.0
-
-    def poll(self):
-        self.pygame.event.pump()
-        steer = -self.js.get_axis(self.ax_steer)  # Chrono: +1 is steer LEFT
-        if abs(steer) < 0.05:
-            steer = 0.0  # dead zone
-        return steer, self._pedal(self.ax_thr), self._pedal(self.ax_brk)
-
-    def send_feedback(self, text):
-        pass  # (rumble / force feedback would go here)
 
 
 # =============================================================================
@@ -307,7 +279,7 @@ def main():
     # -----------------------------------------------------------------------
     # Create the driver system - this is where the human plugs in
     # -----------------------------------------------------------------------
-    device = None  # PART 3 input device (UdpInput or GamepadInput)
+    device = None  # PART 4 input device (UdpInput) - gamepad/wheel needs no device object
 
     if INPUT_SOURCE == "data":
         ### PART 1: scripted inputs - no human in the loop ###
@@ -334,13 +306,20 @@ def main():
         driver.SetBrakingDelta(render_step_size / braking_time)
         driver.SetGains(4.0, 4.0, 4.0)  # first-order lag from key target to applied input
 
+    elif INPUT_SOURCE == "gamepad":
+        ### PART 3: a gamepad or wheel - same driver class as keyboard ###
+        # SetInputMode(JOYSTICK) switches ChInteractiveDriver from reading the
+        # Irrlicht window's keyboard to reading the joystick vis configures
+        # below.  Smoothing (SetGains) applies the same way either mode.
+        driver = veh.ChInteractiveDriver(vehicle)
+        driver.SetGains(4.0, 4.0, 4.0)
+        driver.SetInputMode(driver.InputMode_JOYSTICK)
+
     else:
-        ### PART 3: our own device writes into a plain ChDriver ###
+        ### PART 4: a device Chrono doesn't know about writes into a plain ChDriver ###
         driver = veh.ChDriver(vehicle)
         if INPUT_SOURCE == "udp":
             device = UdpInput(port=UDP_PORT)
-        elif INPUT_SOURCE == "gamepad":
-            device = GamepadInput(mapping=GAMEPAD_MAPPING)
         else:
             raise ValueError(f"unknown INPUT_SOURCE {INPUT_SOURCE!r}")
         smoother = SmoothedInputs(gain=4.0)
@@ -359,8 +338,11 @@ def main():
     vis.AddLightDirectional()
     vis.AddSkyBox()
     vis.AttachVehicle(vehicle)
-    if INPUT_SOURCE == "keyboard":
-        vis.AttachDriver(driver)  # route Irrlicht key events to the driver
+    if INPUT_SOURCE in ("keyboard", "gamepad"):
+        vis.AttachDriver(driver)  # route Irrlicht key/joystick events to the driver
+    if INPUT_SOURCE == "gamepad":
+        vis.SetJoystickConfigFile(JOYSTICK_CONFIG)
+        vis.SetJoystickDebug(JOYSTICK_DEBUG)  # prints live axis/button numbers
 
     # PART 5: the built-in overlay - nothing here is hand-drawn, every piece
     # is a flag or a method on `vis` itself
@@ -400,7 +382,7 @@ def main():
             vis.Render()
             vis.EndScene()
 
-        # PART 3: sample the device ONCE per step and hold it for the step
+        # PART 4: sample the device ONCE per step and hold it for the step
         if device is not None:
             smoother.set_target(*device.poll())
             smoother.advance(step_size)
@@ -453,14 +435,14 @@ VEHICLE = "hmmwv"
 # Where do the driver inputs come from?
 #   "data"      PART 1 - scripted ChDataDriver, no human
 #   "keyboard"  PART 2 - ChInteractiveDriver, arrow keys in the Irrlicht window
-#   "udp"       PART 3 - operator_console.py sends packets over the network
-#   "gamepad"   PART 3 - gamepad / steering wheel through pygame
+#   "gamepad"   PART 3 - a joystick/wheel, read natively (JOYSTICK_CONFIG below)
+#   "udp"       PART 4 - operator_console.py sends packets over the network
 INPUT_SOURCE = "data"
 
 # How is real time enforced?  "none" | "per_step" | "vehicle" | "cumulative"
 REALTIME = "none"
 
-# PART 4: send telemetry back to the operator (udp/gamepad sources only)
+# PART 4: send telemetry back to the operator (udp source only)
 SEND_FEEDBACK = False
 
 # Simulation step sizes.  Make step_size smaller (e.g. 5e-4) to see RTF > 1.
@@ -473,9 +455,14 @@ tire_model = veh.TireModelType_TMEASY
 # Time interval between two render frames
 render_step_size = 1.0 / 50  # FPS = 50
 
-# PART 3 device settings
+# PART 3: joystick/wheel config - four presets ship with Chrono, or write your own
+#   controller_XboxOneForWindows.json, controller_LogitechRumblePad2.json,
+#   controller_WheelPedalsAndShifters.json, controller_Default.json
+JOYSTICK_CONFIG = veh.GetVehicleDataFile("joystick/controller_XboxOneForWindows.json")
+JOYSTICK_DEBUG = False  # True: print live axis/button numbers to find your device's mapping
+
+# PART 4 device settings
 UDP_PORT = 9870
-GAMEPAD_MAPPING = "xbox"  # "xbox" or "g29" - see probe_gamepad.py
 
 # PART 5: the built-in Irrlicht overlay - add or remove pieces of it here
 # instead of writing your own on top of the 3D view
