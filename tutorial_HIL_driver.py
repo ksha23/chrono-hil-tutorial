@@ -9,7 +9,7 @@
 # http://projectchrono.org/license-chrono.txt.
 #
 # =============================================================================
-# Tutorial: Chrono support for human-in-the-loop (HIL) simulation
+# Tutorial: Chrono support for human-in-the-loop simulation
 #
 # One script, five parts. Change the switches in the CONFIGURATION section at
 # the bottom of the file to move from one part to the next.
@@ -388,7 +388,7 @@ def main():
             smoother.advance(step_size)
             smoother.apply_to(driver)
 
-        # Get driver inputs (three floats) - this is the whole HIL contract
+        # Get driver inputs (three floats) - this is the whole human-in-the-loop contract
         driver_inputs = driver.GetInputs()
 
         # Update modules (process inputs from other modules)
