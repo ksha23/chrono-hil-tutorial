@@ -71,13 +71,13 @@ panels -- no new drawing code required either way.
 ## Choose your car
 
 `VEHICLE` picks which Chrono::Vehicle model gets built -- `"hmmwv"` (default),
-`"sedan"`, `"citybus"`, or `"gator"`. `build_vehicle()` is the only place that
+`"sedan"`, `"uazbus"`, or `"gator"`. `build_vehicle()` is the only place that
 knows the differences between them; everything else (terrain, driver, vis,
 the simulation loop) uses the same `GetVehicle()` / `GetSystem()` /
 `Synchronize()` / `Advance()` interface no matter which one you pick.
 
 ```python
-VEHICLE = "citybus"  # try "hmmwv", "sedan", "citybus", "gator"
+VEHICLE = "uazbus"  # try "hmmwv", "sedan", "uazbus", "gator"
 ```
 
 ## Things to try
@@ -87,5 +87,5 @@ VEHICLE = "citybus"  # try "hmmwv", "sedan", "citybus", "gator"
 - Set `SmoothedInputs(gain=50.0)` in Part 4 and feel what raw inputs do to the suspension.
 - Unplug the network mid-run (or stop the operator console): the last input is held.
 - `JOYSTICK_DEBUG = True`: move one axis at a time and watch the printed numbers to build your own controller config.
-- Set `VEHICLE = "citybus"` and try to drive the same scripted course as the HMMWV -- same driver, same terrain, very different vehicle.
+- Set `VEHICLE = "uazbus"` and try to drive the same scripted course as the HMMWV -- same driver, same terrain, very different vehicle.
 - `SHOW_SIM_INFO_PANEL = True` and press `i` while the sim is running: same panel, two ways to reach it.

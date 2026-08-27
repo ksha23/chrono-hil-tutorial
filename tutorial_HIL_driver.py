@@ -177,7 +177,7 @@ class UdpInput:
 # PART 5: CHOOSE YOUR CAR
 # =============================================================================
 #
-# Every "full vehicle" model in Chrono::Vehicle (HMMWV_Full, Sedan, CityBus,
+# Every "full vehicle" model in Chrono::Vehicle (HMMWV_Full, Sedan, UAZBUS,
 # Gator, ...) exposes the same handful of setup calls and the same
 # GetVehicle() / GetSystem() / Synchronize() / Advance() interface. That means
 # the rest of this script (terrain, driver, vis, the simulation loop) does not
@@ -217,15 +217,15 @@ def build_vehicle(name):
         v.Initialize()
         chase_dist = 6.0
 
-    elif name == "citybus":
-        v = veh.CityBus()
+    elif name == "uazbus":
+        v = veh.UAZBUS()
         v.SetContactMethod(chrono.ChContactMethod_SMC)
         v.SetChassisFixed(False)
-        v.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(0, 0, 0.5), chrono.QUNIT))
+        v.SetInitPosition(chrono.ChCoordsysd(chrono.ChVector3d(0, 0, 0.4), chrono.QUNIT))
         v.SetTireType(tire_model)
         v.SetTireStepSize(tire_step_size)
         v.Initialize()
-        chase_dist = 15.0
+        chase_dist = 6.0
 
     elif name == "gator":
         v = veh.Gator()
@@ -429,7 +429,7 @@ def main():
 # CONFIGURATION
 # =============================================================================
 
-# PART 5: choose your car - "hmmwv" | "sedan" | "citybus" | "gator"
+# PART 5: choose your car - "hmmwv" | "sedan" | "uazbus" | "gator"
 VEHICLE = "hmmwv"
 
 # Where do the driver inputs come from?
