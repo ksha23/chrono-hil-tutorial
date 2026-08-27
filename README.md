@@ -2,6 +2,12 @@
 
 Run Chrono in real time with a person providing live control input.
 
+The two patterns worth taking away: keeping a simulation real-time (Part 1)
+and closing an external device's control loop back to it (Part 4). Both show
+up anywhere a person or outside hardware talks to a live simulation. Parts 2
+and 3 are two ways to feed a human's input in; Part 5 (choose your car,
+customize the overlay) is a bonus, not the point.
+
 ## Setup
 
 ```bash
