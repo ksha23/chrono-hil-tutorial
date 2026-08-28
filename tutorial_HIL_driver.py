@@ -82,7 +82,7 @@ class CumulativeRealtimeTimer:
 # steering/throttle/braking/clutch/shifting; Chrono ships four presets
 # (data/vehicle/joystick/controller_*.json) and you can write your own.
 # vis.SetJoystickDebug(True) prints live axis and button numbers twice a
-# second - the same job probe_gamepad.py used to do, built in.
+# second - no separate probe script needed.
 #
 # =============================================================================
 # PART 4: BRING A DEVICE CHRONO DOESN'T KNOW ABOUT

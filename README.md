@@ -45,8 +45,7 @@ JSON files that ship with Chrono in `data/vehicle/joystick/` --
 `controller_XboxOneForWindows.json`, `controller_LogitechRumblePad2.json`,
 `controller_WheelPedalsAndShifters.json`, or `controller_Default.json` -- or
 write your own. Set `JOYSTICK_DEBUG = True` and run the tutorial to print
-live axis/button numbers for your device, the same job `probe_gamepad.py`
-used to do by hand.
+live axis/button numbers for your device -- no separate probe script needed.
 
 Part 4 needs nothing but a second terminal:
 
