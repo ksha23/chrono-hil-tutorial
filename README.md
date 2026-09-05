@@ -8,9 +8,11 @@ up anywhere a person or outside hardware talks to a live simulation. Parts 2
 and 3 are two ways to feed a human's input in; Parts 5-8 are bonus material,
 not the point.
 
-Parts 1-5 are what the slide deck covers. Parts 6-8 came later and are not in
-the deck: changing gear, driving somewhere real, and steering something that
-is not a car.
+The slide deck (`tutorial_HIL_driver.pptx`, and the same thing as a PDF) is a
+30-minute walkthrough: Parts 1, 2 and 4 in full, then Parts 6-8 -- changing
+gear, driving somewhere real, and steering something that is not a car -- more
+briefly at the end. Parts 3 and 5 are repo-only; there is no time for them in
+the talk.
 
 ## Setup
 

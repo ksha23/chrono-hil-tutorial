@@ -11,7 +11,7 @@
 # =============================================================================
 # Tutorial: Chrono support for human-in-the-loop simulation
 #
-# One script, five parts. Change the switches in the CONFIGURATION section at
+# One script, eight parts. Change the switches in the CONFIGURATION section at
 # the bottom of the file to move from one part to the next.
 #
 #   PART 1: Keep the simulation real-time            (INPUT_SOURCE = "data")
