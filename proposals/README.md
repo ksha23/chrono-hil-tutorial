@@ -1,11 +1,12 @@
-# Three proposed recuts of the tutorial deck
+# Four proposed recuts of the tutorial deck
 
 Drafts, for choosing between. The deck actually in use is still
 `../tutorial_HIL_driver.pptx`; nothing here replaces it until you say so.
 
 Each option is a complete, presentable deck built from the same verified code
 excerpts and the same template, so they can be compared by flipping through the
-PDFs rather than by reading this file.
+PDFs rather than by reading this file. D is the recommendation; A, B and C are
+the distinct positions it was chosen from.
 
 ## Why recut at all
 
@@ -15,7 +16,7 @@ about the Parts 6-8 material.
 **It is about seven minutes too long.** Rough model below: 15 s for a title or
 closing slide, 10 s for a section header, 60 s for a bullet slide, 100 s for a
 code slide, 150 s for a live demo. Disagree with those numbers and the ranking
-still holds, because they are applied identically to all four.
+still holds, because they are applied identically to all five.
 
 | deck | slides | code slides | live demos | modelled |
 |---|---|---|---|---|
@@ -23,6 +24,7 @@ still holds, because they are applied identically to all four.
 | A - why first | 26 | 7 | 4 | ~31 min |
 | B - two patterns | 23 | 7 | 3 | **~27 min** |
 | C - one loop | 25 | 8 | 2 | ~28 min |
+| D - recommended | 26 | 7 | 4 | ~31 min |
 
 **The motivation is on slide 26 of 30.** The crane -- a swinging load that no
 controller in the repo can place, and that only a human can -- is the clearest
@@ -81,16 +83,33 @@ most visually varied -- a car, a rover, a crane and a real test facility.
 
 The cost is that the two genuinely transferable patterns get less airtime.
 
+## D - "Recommended"  (B's body behind A's cold open)
+
+*Thesis: open with the reason, then spend the talk on what transfers.*
+
+A's first three slides -- the crane task, the crane demo, and the question it
+raises -- land on the contract slide, which now arrives as the answer to
+something rather than as a definition. Everything after that is B: the two
+patterns, the keyboard as the easy case, Parts 6-8 on one slide at the end.
+
+Pick this if the argument matters more than the minute count.
+
 ## Recommendation
 
-**B**, with A's opening grafted on: A's slides 2-4 (the crane task, the demo,
-and the contract slide it hands to) in front of B's Pattern 1. That is about
-30 minutes, opens with the reason instead of the mechanism, and still spends
-the body of the talk on the two things that transfer. Say the word and I will
-build it as a fourth option rather than leaving it as a description.
+**D.** It gets the one thing the current deck most clearly has backwards -- the
+motivation is at the end -- without giving up the body of the talk to a tour.
 
-Straight B if you would rather not open on a demo -- a cold-open demo that
-fails costs more than it earns, and it is the first thing the audience sees.
+One correction to what I said before building it: D models at **~31 minutes,
+not 30**. A's cold open costs 220 s and only ~60 s comes back from replacing
+B's overview slide, so D lands where A does. If 31 is too close for comfort,
+the cheapest honest cut is slide 17, the keyboard demo: the cold open has
+already put a live simulation on screen, and Part 2 still keeps its code
+slide. That is ~28.5 min. I have left the demo in rather than make that call
+for you.
+
+Straight **B** if you would rather not open on a demo. A cold open that fails
+costs more than it earns, and it is the first thing the audience sees; B never
+depends on a demo working before minute nine.
 
 ## Promoting one
 

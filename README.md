@@ -14,9 +14,9 @@ gear, driving somewhere real, and steering something that is not a car -- more
 briefly at the end. Parts 3 and 5 are repo-only; there is no time for them in
 the talk.
 
-Three proposed recuts of that deck, and the case for recutting it, are in
-[`proposals/`](proposals/README.md). They are drafts for choosing between; the
-deck above is the one in use.
+Four proposed recuts of that deck, and the case for recutting it, are in
+[`proposals/`](proposals/README.md) -- `D_recommended` is the suggested one.
+They are drafts for choosing between; the deck above is the one in use.
 
 ## Setup
 
