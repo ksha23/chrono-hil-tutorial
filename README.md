@@ -9,14 +9,13 @@ and 3 are two ways to feed a human's input in; Parts 5-8 are bonus material,
 not the point.
 
 The slide deck (`tutorial_HIL_driver.pptx`, and the same thing as a PDF) is a
-30-minute walkthrough: Parts 1, 2 and 4 in full, then Parts 6-8 -- changing
-gear, driving somewhere real, and steering something that is not a car -- more
-briefly at the end. Parts 3 and 5 are repo-only; there is no time for them in
-the talk.
-
-Four proposed recuts of that deck, and the case for recutting it, are in
-[`proposals/`](proposals/README.md) -- `D_recommended` is the suggested one.
-They are drafts for choosing between; the deck above is the one in use.
+25-slide, 30-minute walkthrough. It opens on the gantry crane of Part 8 -- a
+swinging load that only a person can place -- so that the three-float driver
+contract arrives as the answer to a question rather than as a definition. The
+body is the two patterns that transfer: keeping the simulation real-time
+(Part 1) and closing an external device's loop back to it (Part 4), with the
+keyboard (Part 2) as the easy case in between. Parts 6-8 are one summary slide
+near the end; Parts 3 and 5 are repo-only.
 
 ## Setup
 
