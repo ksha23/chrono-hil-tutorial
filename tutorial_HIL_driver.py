@@ -534,16 +534,42 @@ def main():
 
     elif INPUT_SOURCE == "keyboard":
         ### PART 2: keyboard through the Irrlicht window ###
-        # Arrow keys steer/accelerate/brake, 'C' centers steering, 'R' releases
-        # the pedals, 'L' locks the current inputs.
+        # W/A/S/D drive, 'C' centers steering, 'R' releases the pedals, 'L' locks
+        # the current inputs.  The ARROW keys are not driving controls: they belong
+        # to the chase camera (zoom and orbit), which is a separate Irrlicht event
+        # receiver.  Easy to get wrong, because every other part of this tutorial
+        # drives with the arrow keys - but those are OUR pygame console, not Chrono.
         driver = veh.ChInteractiveDriver(vehicle)
+        driver.SetGains(4.0, 4.0, 4.0)  # first-order lag from key target to applied input
+
+        # KEYBOARD_MODE picks what a keypress MEANS.  This is the same question
+        # PART 4 answers for its own device, so it is worth seeing both answers:
+        #
+        #   "cumulative"  each keypress nudges a target by a fixed delta, and the
+        #                 target stays where you left it.  Historical Chrono
+        #                 behaviour, and what the deltas below configure.
+        #   "held"        the input follows the keys currently held down and ramps
+        #                 back when you let go, as in a driving game.  This is the
+        #                 same "levels, re-sent continuously" model that
+        #                 operator_console.py uses over UDP in PART 4, and SetGains
+        #                 above is the ramp rate.
+        #
+        # "held" needs the KeyboardMode API (PyChrono build 1187 / Aug 2026 and
+        # later).  On an older PyChrono, say so and carry on cumulatively rather
+        # than dying with an AttributeError.
+        if KEYBOARD_MODE == "held":
+            if hasattr(veh.ChInteractiveDriver, "KeyboardMode_HELD"):
+                driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)
+            else:
+                print('[keyboard] this PyChrono predates KeyboardMode; '
+                      'using "cumulative". Update to build 1187 or later for "held".')
+
         steering_time = 1.0  # time to go from 0 to +1 (or from 0 to -1)
         throttle_time = 1.0  # time to go from 0 to +1
         braking_time = 0.3   # time to go from 0 to +1
         driver.SetSteeringDelta(render_step_size / steering_time)
         driver.SetThrottleDelta(render_step_size / throttle_time)
         driver.SetBrakingDelta(render_step_size / braking_time)
-        driver.SetGains(4.0, 4.0, 4.0)  # first-order lag from key target to applied input
 
     elif INPUT_SOURCE == "gamepad":
         ### PART 3: a gamepad or wheel - same driver class as keyboard ###
@@ -811,10 +837,16 @@ MCITY_DIR = None
 
 # Where do the driver inputs come from?
 #   "data"      PART 1 - scripted ChDataDriver, no human
-#   "keyboard"  PART 2 - ChInteractiveDriver, arrow keys in the Irrlicht window
+#   "keyboard"  PART 2 - ChInteractiveDriver, W/A/S/D in the Irrlicht window
 #   "gamepad"   PART 3 - a joystick/wheel, read natively (JOYSTICK_CONFIG below)
 #   "udp"       PART 4 - operator_console.py sends packets over the network
 INPUT_SOURCE = "data"
+
+# PART 2: what a keypress means.  "cumulative" | "held"
+#   "cumulative"  a keypress nudges the input by a delta and it stays there
+#   "held"        the input follows the keys held down, as in a driving game
+# "held" matches what the PART 4 console does over UDP; see build_driver().
+KEYBOARD_MODE = "cumulative"
 
 # How is real time enforced?  "none" | "per_step" | "vehicle" | "cumulative"
 REALTIME = "none"

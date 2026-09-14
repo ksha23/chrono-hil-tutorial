@@ -44,15 +44,23 @@ import pychrono.vehicle as veh
 # is attached with vis.AttachDriver(driver).  Printed at startup so nobody has
 # to go looking for it in the C++ source.
 KEYBOARD_HELP = """\
+  driving (KEYBOARD_MODE = "cumulative")
+    W/S  throttle up / down (S brakes once throttle reaches 0)
+    A/D  steer left / right
+    C    center steering                     R    release the pedals
+    L    lock the current inputs
+  driving (KEYBOARD_MODE = "held")
+    W    hold to accelerate                  S    hold to brake
+    A/D  hold to steer left / right          E    hold the clutch (manual only)
+  camera (NOT driving controls)
+    arrows  zoom and orbit the chase camera  PgUp/PgDn  raise / lower it
   gears (automatic transmission)
     Z    toggle drive mode  D <-> R          X    neutral
     T    toggle AUTO <-> MANUAL shifting
     [    shift down                          ]    shift up
   gears (manual transmission)
     [    shift down                          ]    shift up
-    Q/E  clutch out / in
-  driver
-    C    center steering                     R    release the pedals\
+    Q/E  clutch out / in ("cumulative" only)\
 """
 
 

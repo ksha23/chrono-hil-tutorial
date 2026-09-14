@@ -21,14 +21,31 @@ They are drafts for choosing between; the deck above is the one in use.
 ## Setup
 
 ```bash
-conda create -n chrono_hil -c projectchrono -c conda-forge pychrono pygame python=3.13
+conda create -n chrono_hil -c conda-forge projectchrono::pychrono pygame python=3.13
 conda activate chrono_hil
 ```
 
-Do **not** `pip install pychrono` -- the package with that name on PyPI is an
-unrelated library. PyChrono comes from the `projectchrono` conda channel.
+Two ways to end up with a PyChrono that cannot run this tutorial, both of which
+install without an error message:
+
+- **`pip install pychrono`** installs an unrelated PyPI package of the same name.
+- **conda-forge also publishes a `pychrono` 10.0.0**, and it is a different
+  package: 4.7 MB against 498 MB, shipping only `core`, `fea` and `robot`. This
+  tutorial imports `pychrono.vehicle` and `pychrono.irrlicht`, and neither is in
+  it, so it fails on the first import. Same name, same version number, no
+  warning. The `projectchrono::` prefix above is what pins the right one --
+  without it, listing `-c conda-forge` first is enough to get the wrong one.
+
+Check what you got with `python -c "import pychrono.vehicle, pychrono.irrlicht"`.
+
 `pygame` is only needed for Part 4 (`operator_console.py`); a gamepad or
 wheel is read natively by Chrono and needs no extra package.
+
+**Intel Macs:** `osx-64` PyChrono is frozen at 8.0.0 (2023) and much of the API
+used here does not exist in it. Apple Silicon (`osx-arm64`), Linux and Windows
+all have 10.0.0. Note that Chrono::Sensor is not built for macOS on either
+architecture -- it is in the Linux and Windows packages only, and nothing in
+this tutorial needs it.
 
 Files:
 
@@ -48,13 +65,45 @@ All switches live in the `CONFIGURATION` section at the bottom of
 | part | `INPUT_SOURCE` | `REALTIME` | `SEND_FEEDBACK` | what you see |
 |---|---|---|---|---|
 | 1. Keep it real-time | `"data"` | `"none"` -> `"per_step"` / `"vehicle"` / `"cumulative"` | `False` | scripted drive; console shows sim time vs wall time, drift, RTF |
-| 2. Human on the keyboard | `"keyboard"` | `"vehicle"` | `False` | arrow keys in the Irrlicht window drive the HMMWV |
+| 2. Human on the keyboard | `"keyboard"` | `"vehicle"` | `False` | `W`/`A`/`S`/`D` in the Irrlicht window drive the HMMWV (see `KEYBOARD_MODE`) |
 | 3. A gamepad or wheel | `"gamepad"` | `"vehicle"` | `False` | joystick/wheel drives the HMMWV, read natively -- no pygame |
 | 4. A device Chrono doesn't know, and closing the loop | `"udp"` | `"vehicle"` | `True` | `operator_console.py` in a second terminal drives the HMMWV and shows telemetry back |
 | 5. Customize the overlay / choose your car | any | any | any | `SHOW_*` switches and `VEHICLE` (see below) |
 | 6. Change gear | `keyboard` / `udp` | any | any | `TRANSMISSION`, and the keys printed at startup |
 | 7. Drive somewhere real | any | any | any | `SCENE = "mcity"` puts the car in the Mcity digital twin |
 | 8. Control something that isn't a car | `udp` / `data` | any | any | `PLANT = "rover"` or `"crane"` |
+
+## Part 2: what a keypress means
+
+Driving is `W`/`A`/`S`/`D`, plus `C` to center the steering, `R` to release the
+pedals and `L` to lock the current inputs. The **arrow keys are not driving
+controls** -- they zoom and orbit the chase camera, which is a separate Irrlicht
+event receiver. (Part 4's `operator_console.py` *does* drive with the arrow keys,
+but that is our own pygame window, not Chrono's.)
+
+`KEYBOARD_MODE` picks what holding a key actually means, and the two answers are
+worth comparing because Part 4 has to answer the same question for its own device:
+
+| `KEYBOARD_MODE` | what a key does | configured by |
+|---|---|---|
+| `"cumulative"` | each keypress nudges a target by a fixed delta, and the target stays where you left it | `SetThrottleDelta`, `SetSteeringDelta`, `SetBrakingDelta` |
+| `"held"` | the input follows the keys currently held down and ramps back when you let go, as in a driving game | `SetGains` |
+
+`"cumulative"` is the historical Chrono::Vehicle behaviour and is still the
+default. `"held"` is the interesting one here, because it is the *same model the
+UDP console already uses*: `operator_console.py` re-sends absolute steering,
+throttle and braking every frame, and `SmoothedInputs` ramps toward them. So
+`"held"` is Chrono doing for its own keyboard exactly what Part 4 does by hand
+for a device Chrono has never heard of -- with `SetGains` as the shared ramp rate.
+
+```python
+KEYBOARD_MODE = "held"
+INPUT_SOURCE = "keyboard"
+```
+
+`"held"` needs the `KeyboardMode` API, which landed in PyChrono build `1187`
+(August 2026). On an older build the tutorial prints a note and stays cumulative
+rather than failing.
 
 Part 3 needs a gamepad or steering wheel. Set `JOYSTICK_CONFIG` to one of the
 JSON files that ship with Chrono in `data/vehicle/joystick/` --
@@ -230,6 +279,7 @@ REALTIME = "vehicle"      # falls back to "per_step" when there is no vehicle
 - Unplug the network mid-run (or stop the operator console): the last input is held.
 - `JOYSTICK_DEBUG = True`: move one axis at a time and watch the printed numbers to build your own controller config.
 - Set `VEHICLE = "uazbus"` and try to drive the same scripted course as the HMMWV -- same driver, same terrain, very different vehicle.
+- `KEYBOARD_MODE = "held"` vs `"cumulative"` with the same `SetGains`: the second one ratchets, the first one drives.
 - `SHOW_SIM_INFO_PANEL = True` and press `i` while the sim is running: same panel, two ways to reach it.
 - `VEHICLE = "audi"`, `TRANSMISSION = "manual"`, `START_IN_MANUAL_SHIFT = True`: pull away in third and feel the engine bog down.
 - `T` then `[` in the Irrlicht window: take an automatic out of auto and hold a gear through a corner.
