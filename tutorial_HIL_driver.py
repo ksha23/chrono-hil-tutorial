@@ -632,6 +632,10 @@ def main():
         ### PART 8: a plain visual system, because there is no vehicle to attach ###
         vis = irr.ChVisualSystemIrrlicht()
         vis.AttachSystem(system)
+        # Chrono's world here is Z-up, but a plain ChVisualSystemIrrlicht
+        # defaults to a Y-up camera, which renders the ground as a wall. The
+        # vehicle visual system sets this for you; this one does not.
+        vis.SetCameraVertical(chrono.CameraVerticalDir_Z)
         vis.SetWindowTitle(title)
         vis.SetWindowSize(1280, 800)
         vis.Initialize()

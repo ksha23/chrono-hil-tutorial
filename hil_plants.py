@@ -301,8 +301,22 @@ class CranePlant:
                               trolley.GetPos(), payload.GetPos())
         system.AddLink(self.cable)
         # Drawn so the payload is not floating unexplained.
-        self.cable_shape = chrono.ChVisualShapeSegment()
-        self.cable.AddVisualShape(self.cable_shape)
+        # Drawing the cable is not as simple as it looks.  A ChVisualShapeSegment
+        # on the link is the obvious way, and it is what VSG renders -- but the
+        # Irrlicht backend has no case for a segment at all (it draws boxes,
+        # spheres, cylinders, capsules, cones, barrels, ellipsoids, surfaces and
+        # meshes, and silently ignores the rest).  This tutorial runs on
+        # Irrlicht, so the cable is a thin cylinder instead, re-aimed once per
+        # step in synchronize() below.  Without this the payload just floats.
+        self.cable_shape = chrono.ChVisualShapeCylinder(0.04, self.CABLE)
+        self.cable_shape.SetColor(chrono.ChColor(0.15, 0.15, 0.15))
+        self.cable_body = chrono.ChBody()
+        self.cable_body.SetFixed(True)
+        self.cable_body.EnableCollision(False)
+        self.cable_body.SetName("crane cable")
+        self.cable_body.AddVisualShape(self.cable_shape)
+        system.AddBody(self.cable_body)
+        self._aim_cable()
 
         # A mark on the ground to aim the payload at.
         target = chrono.ChBody()
@@ -323,8 +337,34 @@ class CranePlant:
         self.long_speed.SetSetpoint(long_cmd, t)
         self.cross_speed.SetSetpoint(inputs.m_steering * self.MAX_CROSS_SPEED, t)
 
+    def _aim_cable(self):
+        """Point the drawn cable from the trolley down to the payload.
+
+        The constraint is what actually holds the load; this only keeps the
+        picture honest, so it is a visual update and nothing else.
+        """
+        a = self.trolley.GetPos()
+        b = self.payload.GetPos()
+        d = b - a
+        length = d.Length()
+        if length < 1e-6:
+            return
+        # A ChVisualShapeCylinder is drawn along its local Z (the target pad is
+        # the same shape lying flat), so build a frame whose Z runs down the cable.
+        ez = d / length
+        ref = chrono.ChVector3d(0, 0, 1)
+        if abs(ez.z) > 0.99:
+            ref = chrono.ChVector3d(1, 0, 0)
+        ex = ref.Cross(ez)
+        ex = ex / ex.Length()
+        ey = ez.Cross(ex)
+        rot = chrono.ChMatrix33d()
+        rot.SetFromDirectionAxes(ex, ey, ez)
+        self.cable_body.SetPos((a + b) * 0.5)
+        self.cable_body.SetRot(rot.GetQuaternion())
+
     def synchronize(self, t, inputs):
-        pass
+        self._aim_cable()
 
     def advance(self, step):
         pass  # the motors and the constraint are stepped with the system

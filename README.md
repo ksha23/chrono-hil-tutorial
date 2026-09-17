@@ -242,6 +242,20 @@ another frame. 860 placements therefore cost 230 meshes, not 860 copies.
 
 ## Part 8: control something that isn't a car
 
+Two things about the plain visual system are worth knowing before you run the
+rover or the crane, because both were invisible while Part 8 was only ever
+checked headlessly:
+
+- A plain `ChVisualSystemIrrlicht` defaults to a **Y-up camera** while this
+  world is Z-up, so without `SetCameraVertical(CameraVerticalDir_Z)` the ground
+  renders as a wall. `ChWheeledVehicleVisualSystemIrrlicht` sets this for you;
+  the plain one does not.
+- The Irrlicht backend does not draw `ChVisualShapeSegment` at all -- it handles
+  boxes, spheres, cylinders, capsules, cones, barrels, ellipsoids, surfaces and
+  meshes, and silently ignores anything else. VSG does draw segments. The crane's
+  cable is therefore a thin cylinder, re-aimed once per step, or the payload
+  appears to float unattached.
+
 Nothing about the pattern needs a vehicle. `PLANT` picks what the same three
 numbers, arriving from the same devices, are wired into:
 
