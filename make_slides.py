@@ -364,7 +364,7 @@ def label(slide, x, y, w, text, size=14, align=PP_ALIGN.CENTER, color=None):
     return tb
 
 
-def place_side_shot(slide, path, note, left=7.95, top=1.62):
+def place_side_shot(slide, path, tight, left=7.95, top=1.62):
     """One figure down the right-hand side, scaled to fill that column.
 
     A single portrait-ish image under a short bullet list wastes the whole
@@ -375,7 +375,7 @@ def place_side_shot(slide, path, note, left=7.95, top=1.62):
     from PIL import Image as _Im
     iw, ih = _Im.open(path).size
     box_w = 13.33 - left - 0.43
-    box_h = (5.90 if note else 6.95) - top
+    box_h = (6.05 if tight else 6.95) - top
     scale = min(box_w / iw, box_h / ih)
     w, h = iw * scale, ih * scale
     slide.shapes.add_picture(path, Inches(left + (box_w - w) / 2.0),
@@ -482,7 +482,18 @@ def build(check_only=False):
         finish(s)
         return s
 
-    def bullets(head, items, note=None, size=20, shots=None):
+    def bullets(head, items, note=None, size=20, shots=None, cite=None):
+        """A bullet slide.
+
+        `note` used to render as a box along the bottom edge. On a slide that is
+        already a list, that reads as an orphaned bullet somebody could not fit
+        in, so notes are now simply appended to the list they were commenting
+        on. `cite` is the one thing that still belongs in small print at the
+        foot of a slide, because a citation is not content.
+        """
+        if note:
+            items = list(items) + list(note)
+            note = None
         s = new(CONTENT)
         title_of(s, head)
         body = None
@@ -518,6 +529,13 @@ def build(check_only=False):
         per_line = max(30, int(105 * body_w / 11.96))
         est = sum(1 + len(it[0] if isinstance(it, tuple) else it) // per_line
                   for it in items)
+        # Two jobs, two numbers. Shrinking text wants the true wrap width (105);
+        # deciding where a figure may go wants a pessimistic one, because being
+        # wrong there puts a picture through a paragraph. Sharing one number
+        # meant every fix for one broke the other.
+        per_fig = max(24, int(78 * body_w / 11.96))
+        est_fig = sum(1 + len(it[0] if isinstance(it, tuple) else it) // per_fig
+                      for it in items)
         while size > 13 and est > (13 if not note else 11) * (20.0 / size):
             size -= 1
         gap = 9 if size >= 18 else 5
@@ -531,17 +549,18 @@ def build(check_only=False):
             else:
                 rich(par, item, size)
         if side_path:
-            place_side_shot(s, side_path, note)
+            place_side_shot(s, side_path, cite)
         elif shots:
             # Put the figure under the text, not on top of it. Text starts at
             # 1.44 in; a line costs size*1.25 pt plus the paragraph gap.
-            text_bottom = 1.44 + est * (size * 1.25) / 72.0 + len(items) * gap / 72.0
-            top = max(3.05, text_bottom + 0.38)
-            room = ((7.05 - note_height(note) - 0.18) if note else 7.00) - top
+            text_bottom = (1.44 + est_fig * (size * 1.25) / 72.0
+                           + len(items) * gap / 72.0)
+            top = max(3.05, text_bottom + 0.30)
+            room = (6.15 if cite else 7.00) - top
             if room > 0.9:
                 place_shots(s, shots, top=top, height=min(2.55, room))
-        if note:
-            note_box(s, note, 6.05)
+        if cite:
+            note_box(s, cite, 6.30, size=13)
         finish(s)
         return s
 
@@ -641,10 +660,7 @@ def build(check_only=False):
              "resists, and a Franka arm with the motors on or off.",
              "4.  `How hard can you shove it.` A measured impulse at a point you "
              "choose, and the magnitude where recovery stops."],
-            shots=["hmmwv.png", "demo_go2.png", "demo_arm.png", "demo_push.png"],
-            note=["Two of them are a person inside the loop, one is a person "
-                  "setting up an experiment and watching, and the first one has no "
-                  "human in it at all. That distinction is the next slide."])
+            shots=["hmmwv.png", "demo_go2.png", "demo_arm.png", "demo_push.png"])
 
     # =========================================================================
     # 2-6. What we mean by it
@@ -682,8 +698,7 @@ def build(check_only=False):
              "wrong here'.",
              "`Designing shared control.` When authority is split between a person "
              "and a controller, neither half can be evaluated alone.",
-             "`Setting a scene up.` Placing things by hand where a script would "
-             "take twenty guesses. Useful, and not in the loop."],
+],
             note=["Two different jobs hide in that list. Sometimes the person is "
                   "the SUBJECT being measured; sometimes the person is the "
                   "CONTROLLER, because nothing else can do the task. Either way the "
@@ -700,7 +715,7 @@ def build(check_only=False):
              "significantly lowered steering entropy at high speed. Adaptation "
              "across the three latency trials dominated the effect."],
             shots=["hil_rig.png", "remote_driving_study.png"],
-            note=["Ma, McDonald, Sha, Zhang, Xu, Negrut. \"Evaluating a "
+            cite=["Ma, McDonald, Sha, Zhang, Xu, Negrut. \"Evaluating a "
                   "delay-compensated shared-control system in high- and low-speed "
                   "remote car-following.\""])
 
