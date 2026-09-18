@@ -1303,12 +1303,10 @@ def run_interactive(args):
                 else:
                     # Worth saying out loud, because the reason for a miss is
                     # usually not "you missed": raycasting goes against COLLISION
-                    # geometry, and scene_go2 only enables it on the torso and
-                    # the four feet (the leg cylinders run the full length of the
-                    # limb, so switching them on makes the robot stand on its
-                    # shins).  A click on a thigh therefore hits nothing at all.
-                    print("[point] nothing clickable under the cursor "
-                          "(only the torso and the feet have collision geometry)")
+                    # geometry, so a link with collision disabled is invisible to
+                    # the click no matter how solid it looks.  scene_go2 now
+                    # enables every link, so a miss here really is a miss.
+                    print("[point] nothing clickable under the cursor")
             console.prev_mouse = down
 
         rig.step()

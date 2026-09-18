@@ -6,3 +6,4 @@ placement_*.log
 franka_assets/
 push_log.csv
 place_layout.py
+~$*

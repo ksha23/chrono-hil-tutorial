@@ -666,34 +666,38 @@ def scene_go2(system):
     p.PopulateSystem(system)
 
     # ChParserURDF builds collision models but leaves collision DISABLED on every
-    # body, so the robot falls through the floor without a word. Turn it on for the
-    # feet only: enabling it everywhere makes adjacent links collide with each
-    # other and the robot tears itself apart.
-    # Collision on EVERY link, not just the feet: when the robot topples, a body
-    # with no collision model simply sinks through the floor. Self-collision is
-    # what has to be avoided instead -- adjacent links overlap at their joints,
-    # and letting them push each other apart tears the robot up. Chrono's family
-    # masks do exactly that: one family for the whole robot, and a mask that
-    # excludes it, so links hit the ground and each other's family but not their
-    # own.
-    # ...except the calves. Their collision cylinder runs the length of the shin,
-    # and the proper lower-shin geometry lives in the `calflower` links that had
-    # to be stripped, so what is left scrapes the ground and the robot ends up
-    # standing on its shins -- 18 degrees of stance error against 3. Feet carry
-    # the robot; everything else is here so a fallen robot does not sink.
+    # body, so the robot falls through the floor without a word. Here it goes back
+    # on for EVERY link, so every visible part of the robot can be clicked.
+    # Self-collision is masked out with Chrono's family masks: one family for the
+    # whole robot, and a mask that excludes it, so a link hits the ground and
+    # anything else in the scene but never another link. Adjacent links overlap
+    # at their shared joint, and letting them push each other apart tears the
+    # robot up.
+    #
+    # This used to be feet+base only, because the URDF's leg cylinders run the
+    # full length of the limb (the properly sized lower-shin geometry lives in
+    # the `calflower` links, which Chrono's parser cannot load) and the robot was
+    # said to end up standing on its shins. Measured at GO2_STANCE, it does not:
+    # base height +0.2707 m against +0.2708, worst stance error 4.1 degrees
+    # either way, and the four extra contacts are calf-vs-ground pairs 5 cm apart
+    # carrying 0.00 N -- proximity pairs inside the contact envelope, not load.
+    # The feet still take all the weight. It costs about 11% of the step budget
+    # (RTF 7.02 -> 6.26, still six times faster than real time) and it buys back
+    # 12 of 17 links that could not be raycast, so could not be clicked.
+    #
+    # Under a drag hard enough to topple the robot it is also better behaved:
+    # peak speed after release 3.62 m/s against 5.29, and the base settles at
+    # +0.156 m instead of sinking to +0.070.
+    #
+    # The shin-standing behaviour is stance-dependent, so a much more crouched
+    # GO2_STANCE could bring it back. GO2_COLLIDE = "feet+base" is the way out.
     ROBOT_FAMILY = 2
+    _mode = globals().get("GO2_COLLIDE", "all")
     for b in system.GetBodies():
-        # Feet carry the robot; the base is here so a toppled robot lands on its
-        # body instead of sinking through the floor. The leg segments are left
-        # out on purpose: their URDF cylinders run the full length of the limb
-        # (the properly sized lower-shin geometry is in the `calflower` links,
-        # which Chrono's parser cannot load), so with them on the robot stands on
-        # its shins and the stance error goes from 3 degrees to over 20.
         if b is ground or b.IsFixed():
             continue
-        _mode = globals().get("GO2_COLLIDE", "feet+base")
-        _want = b.GetName().endswith("_foot") or (_mode == "feet+base" and b.GetName() == "base")
-        if not _want:
+        if _mode == "feet+base" and not (b.GetName().endswith("_foot")
+                                         or b.GetName() == "base"):
             continue
         b.EnableCollision(True)
         cm = b.GetCollisionModel()
@@ -717,8 +721,13 @@ def scene_go2(system):
                 m.SetMotorFunction(fn)          # for a torque motor this IS the torque
                 holders.append(StanceHolder(m, fn, angle))
     system.stance_holders = holders     # the loop ticks these every step
+    # "hip" was missing, so the four shoulder links were not reachable by either
+    # path -- they have no collision geometry to raycast AND they were not in the
+    # list pick_near_ray searches. Adding a name here costs nothing physically:
+    # this list only says what the mouse and the select key are allowed to aim at.
     grabbable = [b for b in system.GetBodies()
-                 if any(k in b.GetName() for k in ("calf", "thigh", "foot", "base"))]
+                 if any(k in b.GetName()
+                        for k in ("hip", "calf", "thigh", "foot", "base"))]
     base = [b for b in system.GetBodies() if b.GetName() == "base"][0]
     return (grabbable, 0.9,
             "drag a leg; the joint motors fight you and pull it back", base)
@@ -772,11 +781,25 @@ def scene_arm(system, actuated=True):
             continue
         # The base link is fixed, and skipping fixed bodies left it outside the
         # family -- so the arm collided with its own base.
-        if not b.IsFixed():
-            b.EnableCollision(True)
+        # It now gets collision ENABLED as well, bolted down or not. A raycast
+        # only sees bodies whose collision is on, so with it off panda_link0 was
+        # invisible to the mouse: 0 of 14 test rays hit it, and a click on the
+        # base fell straight through to the fuzzy near-ray pick. Base and ground
+        # are both fixed, so the one contact this adds is free -- the solver has
+        # no degrees of freedom to spend on it (2 contacts at rest before, 2
+        # after, RTF unchanged).
+        b.EnableCollision(True)
         cm = b.GetCollisionModel()
         if cm:
             cm.SetFamily(ARM_FAMILY)
+            # One family for the whole arm, masked out of itself. Consecutive
+            # links overlap at their shared joint and the hand's hull swallows
+            # both fingers, so clearing this mask puts 22 self-contacts in the
+            # scene before the arm has moved, halves the rate (RTF 13.2 -> 6.4)
+            # and has the thing shaking itself apart at 2.0 m/s standing still.
+            # The mask must keep bit 0 set or the ground stops catching the arm
+            # AND the body stops being raycast-hittable (Bullet applies the same
+            # group/mask filter to rayTest as to broadphase -- see pick_near_ray).
             cm.SetFamilyMask(~(1 << ARM_FAMILY) & 0x7FFF)
 
     # Pure damping on every actuated joint. Without it the arm is a 7-link
@@ -791,8 +814,22 @@ def scene_arm(system, actuated=True):
             dampers.append(cls(m, fn, m.GetMotorAngle()))
     system.stance_holders = dampers
 
+    # Everything you can SEE, not just the bodies named panda_link. The gripper
+    # is `panda_hand`, `panda_leftfinger` and `panda_rightfinger`, so the old
+    # startswith("panda_link") filter dropped the entire end effector -- which is
+    # the "I can see it but I cannot click it" report. Collision was never the
+    # problem there: all three were already hit by 14 of 14 test rays. The click
+    # handler threw the hit away because the body was not in THIS list, then fell
+    # back to pick_near_ray, which searches the same list, so the gripper was
+    # unreachable by both paths.
+    # Bodies with no visual shape stay out: panda_link8 and panda_grasptarget are
+    # massless frames the URDF uses to hang the hand off link7, and a zero-mass
+    # body on the end of a grab spring is a division by nothing. So does the
+    # bolted-down base -- see the mouse handler in main().
     grabbable = [b for b in system.GetBodies()
-                 if b.GetName().startswith("panda_link") and not b.IsFixed()]
+                 if b.GetName().startswith("panda") and not b.IsFixed()
+                 and b.GetVisualModel() is not None
+                 and b.GetVisualModel().GetNumShapes() > 0]
     system.grab_omega = 22.0     # see Grabber.grab: this arm is heavy and jointed
     hint = ("hand guiding: it holds its pose, and complies while you hold a link"
             if actuated else
@@ -1038,6 +1075,15 @@ def main(mode, headless_script=None, use_udp=False):
                 if r:
                     got = pick_along_ray(system, r[0], r[1])
                     if got and got[0] not in grabbable:
+                        # A real ray hit on something that cannot be dragged.
+                        # Say so for the arm base: it is the one part of the
+                        # robot a user will click and get nothing from, and
+                        # silence there reads as "the click was ignored" rather
+                        # than "that piece is bolted to the table". Grabbing it
+                        # anyway would be worse -- a fixed body has no degrees of
+                        # freedom, so the spring would pull on nothing.
+                        if got[0].IsFixed() and got[0].GetName().startswith("panda"):
+                            print(f"[mouse] {got[0].GetName()} is bolted down")
                         got = None       # hit the floor or something unpickable
                     if got is None:
                         d0 = r[1] - r[0]
