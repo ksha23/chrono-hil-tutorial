@@ -519,9 +519,14 @@ class StanceHolder:
     disturbance it has to reject.
     """
 
-    KP = 26.0      # N.m per rad
-    KD = 0.7       # N.m per rad/s
-    TAU_MAX = 24.0  # N.m, roughly a Go2 joint's limit
+    # These have to actually hold the robot up. At KP 26 it sags, topples and
+    # ends up on its back with its legs in the air -- and because the legs then
+    # hang unloaded, the per-joint error reads LOW, which is a metric that hides
+    # exactly the failure it should catch. Check the base height and uprightness
+    # instead: standing is z ~ 0.27 with the body z-axis still pointing up.
+    KP = 120.0     # N.m per rad
+    KD = 4.0       # N.m per rad/s
+    TAU_MAX = 60.0  # N.m
 
     def __init__(self, motor, fn, target):
         self.motor, self.fn, self.target = motor, fn, target
@@ -536,7 +541,7 @@ def scene_go2(system):
     """A real Unitree Go2 from URDF, its joints holding a stance while you pull a leg."""
     import pychrono.parsers as parsers
     urdf = make_chrono_safe_urdf(GO2_URDF)
-    ground_plane(system)
+    ground = ground_plane(system)
     p = parsers.ChParserURDF(urdf)
     if "../obj/" not in open(urdf).read():
         p.EnableCollisionVisualization()   # no real visuals survived; draw the shapes
@@ -561,14 +566,42 @@ def scene_go2(system):
     # body, so the robot falls through the floor without a word. Turn it on for the
     # feet only: enabling it everywhere makes adjacent links collide with each
     # other and the robot tears itself apart.
+    # Collision on EVERY link, not just the feet: when the robot topples, a body
+    # with no collision model simply sinks through the floor. Self-collision is
+    # what has to be avoided instead -- adjacent links overlap at their joints,
+    # and letting them push each other apart tears the robot up. Chrono's family
+    # masks do exactly that: one family for the whole robot, and a mask that
+    # excludes it, so links hit the ground and each other's family but not their
+    # own.
+    # ...except the calves. Their collision cylinder runs the length of the shin,
+    # and the proper lower-shin geometry lives in the `calflower` links that had
+    # to be stripped, so what is left scrapes the ground and the robot ends up
+    # standing on its shins -- 18 degrees of stance error against 3. Feet carry
+    # the robot; everything else is here so a fallen robot does not sink.
+    ROBOT_FAMILY = 2
     for b in system.GetBodies():
-        if b.GetName().endswith("_foot"):
-            b.EnableCollision(True)
+        # Feet carry the robot; the base is here so a toppled robot lands on its
+        # body instead of sinking through the floor. The leg segments are left
+        # out on purpose: their URDF cylinders run the full length of the limb
+        # (the properly sized lower-shin geometry is in the `calflower` links,
+        # which Chrono's parser cannot load), so with them on the robot stands on
+        # its shins and the stance error goes from 3 degrees to over 20.
+        if b is ground or b.IsFixed():
+            continue
+        _mode = globals().get("GO2_COLLIDE", "feet+base")
+        _want = b.GetName().endswith("_foot") or (_mode == "feet+base" and b.GetName() == "base")
+        if not _want:
+            continue
+        b.EnableCollision(True)
+        cm = b.GetCollisionModel()
+        if cm:
+            cm.SetFamily(ROBOT_FAMILY)
+            cm.SetFamilyMask(~(1 << ROBOT_FAMILY) & 0x7FFF)   # signed short
 
     # A stance, held by the joint motors. This stands in for a locomotion policy:
     # the point of the demo is that something is actively holding a pose while a
     # human pulls on it, not which controller is doing the holding.
-    STANCE = {"hip": 0.0, "thigh": 0.9, "calf": -1.8}
+    STANCE = globals().get("GO2_STANCE", {"hip": 0.0, "thigh": 0.9, "calf": -1.8})
     holders = []
     for leg in ("FL", "FR", "RL", "RR"):
         for joint, angle in STANCE.items():
@@ -599,7 +632,9 @@ def scene_arm(system):
     z = 0.20
     grabbable = []
     for i, length in enumerate((0.45, 0.40, 0.30)):
-        link = chrono.ChBodyEasyBox(0.09, 0.09, length, 800, True, True, mat)
+        # collision OFF: consecutive links share a joint and so overlap, and the
+        # contact between them is what made the arm buzz rather than hang still.
+        link = chrono.ChBodyEasyBox(0.09, 0.09, length, 800, True, False, mat)
         link.SetPos(chrono.ChVector3d(0, 0, z + length / 2))
         link.SetName(f"link{i+1}")
         system.AddBody(link)
@@ -631,8 +666,16 @@ def scene_place(system):
     body.SetName("vehicle")
     body.GetVisualShape(0).SetColor(chrono.ChColor(0.15, 0.35, 0.75))
     system.AddBody(body)
+    # The camera anchor must NOT be the body being placed: following it means the
+    # view moves with it and the box appears welded to the screen, which reads as
+    # the controls doing nothing at all.
+    marker = chrono.ChBody()
+    marker.SetFixed(True); marker.EnableCollision(False)
+    marker.SetPos(chrono.ChVector3d(0, 0, 0.3))
+    marker.SetName("scene anchor")
+    system.AddBody(marker)
     return ([body], 3.0,
-            "kinematic placement: pose is set directly, and T logs it", body)
+            "kinematic placement: pose is set directly, and T logs it", marker)
 
 
 GO2_URDF = None          # filled in by main() from --urdf or the default path
