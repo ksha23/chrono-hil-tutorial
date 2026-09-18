@@ -36,6 +36,7 @@ from chronohil import (FreeDriveJoint, GRAB_REACH, HANDLE_SPEED,
                        pick_along_ray, pick_at_crosshair, pick_near_ray,
                        require_window, scene_arm, scene_go2, scene_place)
 from chronohil.input import Console, LocalInput, open_window_input
+from chronohil.watchdog import Watchdog
 from demos.manipulate.dragging import Manipulator
 import chronohil.scenes as scenes
 
@@ -66,6 +67,7 @@ def main(mode, headless_script=None, use_udp=False, console=None):
     cam_az, cam_r, cam_h = [0.55], [1.75], [chase * 0.8]   # orbit, distance, height
     kinematic = (mode == "place")
     drag = Manipulator(system, grabbable, kinematic)
+    dog = Watchdog(system, STEP, drag.grabber)
 
     title = f"PART 9: {mode} - reach into the scene"
     vis = irr.ChVisualSystemIrrlicht()
@@ -247,6 +249,7 @@ def main(mode, headless_script=None, use_udp=False, console=None):
                     console.send(f"{t:.3f},{bp.x:.3f},{f:.3f},{bp.z:.3f},{s:.3f},{th:.3f},{br:.3f},"
                                  f"{'HELD' if drag.held else b.GetName()[:8]}")
         FreeDriveJoint.guiding = drag.held
+        dog.sample(drag.held)
         for h in getattr(system, "stance_holders", ()):
             h.update()
         system.DoStepDynamics(STEP)

@@ -15,13 +15,29 @@ RENDER_FPS = 50           # the eye does not need the step rate
 HANDLE_SPEED = 1.2        # m/s at full stick, for key-driven dragging
 UDP_PORT = 9870
 
-# The grab spring. Gains are built from the mass being pulled, so one setting
-# works on a 0.15 kg shin and a 2.7 kg arm link.
-GRAB_OMEGA = 90.0         # rad/s. Has to beat a stance controller or a held
-                          # leg will not budge.
+# The grab spring, and the one number that actually matters about it.
+#
+# The spring is a critically damped tracker, k = m*w^2, so the acceleration it
+# commands is a = F/m = w^2 * x. THE MASS CANCELS. Scaling k by mass is right and
+# is why one setting works on a 0.15 kg shin and a 6.9 kg torso; what it does NOT
+# do is bound how hard the spring pulls, because that is set by w and by how far
+# the handle is allowed to get from the body:
+#
+#     a_max = GRAB_OMEGA^2 * GRAB_REACH
+#
+# Nobody chose that product before. At the old w=90 and reach 0.45 it was
+# 3645 m/s^2, or 371 g, for ANY body grabbed -- which is why grabbing a Go2 by
+# the torso threw the whole robot at 25 m/s. Clamping the FORCE instead would
+# have been a hack: it reintroduces the mass dependence that scaling k removed,
+# making heavy bodies sluggish and light ones violent.
+#
+# So the budget is chosen first and w follows. 270 m/s^2 is about 27 g, which is
+# enough for a dragged Go2 calf to track the cursor through the full 0.30 m of
+# reach (measured: 0.300 m, peak speed 1.67 m/s, torso undisturbed) and 13x
+# gentler than what it replaced.
+GRAB_OMEGA = 30.0         # rad/s, about 4.8 Hz: roughly how fast a hand tracks
 GRAB_ZETA = 1.0           # critically damped
-GRAB_REACH = 0.45         # m: furthest the handle may sit from the held point.
-                          # This bounds the force, since F = k*x. At 3 m a
-                          # 2.7 kg link saw 24,300 m/s^2, which is 48 m/s in one
-                          # 2 ms step: straight through the floor.
+GRAB_REACH = 0.30         # m, the furthest the handle may sit from the held point
+GRAB_MAX_ACCEL = GRAB_OMEGA * GRAB_OMEGA * GRAB_REACH   # 270 m/s^2, stated so a
+                          # change to either number shows up in the other
 GRAB_MAX_SPEED = 2.5      # m/s: a held body cannot outrun contact detection

@@ -167,9 +167,14 @@ def scene_go2(system):
     # path -- they have no collision geometry to raycast AND they were not in the
     # list pick_near_ray searches. Adding a name here costs nothing physically:
     # this list only says what the mouse and the select key are allowed to aim at.
+    # Massless frames are excluded. The `calflower` stubs carry a token 1 g
+    # inertial so the parser does not segfault on them, and at 1 g the grab
+    # spring is 8 N/m: you can pick one and then not move it, which reads as the
+    # click having failed. You cannot meaningfully drag a coordinate frame.
     grabbable = [b for b in system.GetBodies()
-                 if any(k in b.GetName()
-                        for k in ("hip", "calf", "thigh", "foot", "base"))]
+                 if b.GetMass() > 0.01
+                 and any(k in b.GetName()
+                         for k in ("hip", "calf", "thigh", "foot", "base"))]
     base = [b for b in system.GetBodies() if b.GetName() == "base"][0]
     return grabbable, 0.9, hint, base
 
@@ -288,7 +293,9 @@ def scene_arm(system, actuated=True):
                  if b.GetName().startswith("panda") and not b.IsFixed()
                  and b.GetVisualModel() is not None
                  and b.GetVisualModel().GetNumShapes() > 0]
-    system.grab_omega = 22.0     # see Grabber.grab: this arm is heavy and jointed
+    # No private stiffness here any more. The arm needed one only because the
+    # shared setting commanded 371 g; with the acceleration budget in config
+    # the same number works for every scene.
     hint = ("hand guiding: it holds its pose, and complies while you hold a link"
             if actuated else
             "unactuated: nothing is holding it up, so it collapses under gravity")
