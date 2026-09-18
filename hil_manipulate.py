@@ -80,7 +80,12 @@ HANDLE_SPEED = 1.2        # m/s at full stick
 GRAB_OMEGA = 90.0      # rad/s: how hard the cursor pulls. Has to beat the
                        # stance controller or a held leg will not budge.
 GRAB_ZETA = 1.0        # critically damped
-GRAB_REACH = 3.0       # m: furthest the handle may sit from the held point
+GRAB_REACH = 0.45      # m: furthest the handle may sit from the held point.
+                       # This bounds the spring force. At the old 3 m a 2.7 kg
+                       # Panda link saw 24,300 m/s^2 -- 48 m/s in one 2 ms step,
+                       # which tunnels through the floor and fights contact into
+                       # a jitter. Force is k*x, so clamping x is the cheap fix.
+GRAB_MAX_SPEED = 2.5   # m/s: a held body cannot outrun contact detection
 
 
 # -----------------------------------------------------------------------------
@@ -476,9 +481,19 @@ class Grabber:
         # the robot leaves the scene. Genesis sidesteps this by building its
         # impulse from the link's own mass and inertia; the same idea here, as a
         # critically damped spring with a fixed time constant.
+        # Stiffness is per scene, not global. The Go2 needs a hard pull to beat a
+        # stance controller holding a 0.154 kg calf; a 2.7 kg arm link on a
+        # 7-link chain needs a tenth of that, or yanking one link whips the whole
+        # arm at tens of m/s and drives it through the floor.
+        omega = getattr(self.system, "grab_omega", GRAB_OMEGA)
         m = max(body.GetMass(), 1e-3)
-        k = m * GRAB_OMEGA * GRAB_OMEGA
-        c = 2.0 * m * GRAB_OMEGA * GRAB_ZETA
+        k = m * omega * omega
+        c = 2.0 * m * omega * GRAB_ZETA
+        # Belt and braces against tunnelling: a grabbed body may not move faster
+        # than contact detection can keep up with at this step size.
+        self._had_limit = body.GetLimitSpeed() if hasattr(body, "GetLimitSpeed") else False
+        body.SetLimitSpeed(True)
+        body.SetMaxLinVel(GRAB_MAX_SPEED)
         self.spring = chrono.ChLinkTSDA()
         self.spring.Initialize(self.handle, body, False, point, point)
         self.spring.SetRestLength(0.0)
@@ -490,6 +505,8 @@ class Grabber:
         if self.spring is not None:
             self.system.RemoveLink(self.spring)
             self.spring = None
+        if self.body is not None:
+            self.body.SetLimitSpeed(False)
         self.body = None
 
     def held(self):
@@ -776,6 +793,7 @@ def scene_arm(system, actuated=True):
 
     grabbable = [b for b in system.GetBodies()
                  if b.GetName().startswith("panda_link") and not b.IsFixed()]
+    system.grab_omega = 22.0     # see Grabber.grab: this arm is heavy and jointed
     hint = ("hand guiding: it holds its pose, and complies while you hold a link"
             if actuated else
             "unactuated: nothing is holding it up, so it collapses under gravity")

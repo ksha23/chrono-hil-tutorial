@@ -4,3 +4,5 @@ DEMO_OUTPUT/
 go2_assets/
 placement_*.log
 franka_assets/
+push_log.csv
+place_layout.py

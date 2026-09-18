@@ -41,18 +41,24 @@
 # chose -- and then the config you paste does not reproduce the picture you laid
 # out.  Physics comes back on in the run that consumes this file.
 #
-# FOUR THINGS THAT COST HOURS ELSEWHERE IN THIS TUTORIAL, PRE-PAID HERE
-#   1. ChRealtimeStepTimer is not optional.  Unthrottled this loop runs about 50x
-#      real time, so a drag that should cross 2 m crosses 100 m and the object is
-#      off the map before the next frame.  That, and not the picking, is what was
-#      wrong with the first placement demo.
+# SIX THINGS THAT COST HOURS ELSEWHERE IN THIS TUTORIAL, PRE-PAID HERE
+#   1. ChRealtimeStepTimer is not optional.  Measured on this Mac, the loop costs
+#      0.04 to 0.06 s of wall clock per second of simulated time WITH the
+#      rendering, so left alone it runs 20x real time or better: a 1 m/s nudge
+#      becomes 20 m/s and the object is off the map before you let go of the key.
+#      Spin(STEP) once per step pins it to 1.01x.  That, and not the picking, is
+#      what was wrong with the first placement demo.
 #   2. SetCameraVertical(CameraVerticalDir_Z), or the ground renders as a wall.
 #   3. vis.GetCameraPosition() returns (0,0,0).  Ask the Irrlicht node instead:
 #      GetActiveCamera().getAbsolutePosition() / .getTarget().
 #   4. AddCamera builds an RTSCamera that eats the mouse for orbit and pan, so it
 #      fights the drag.  setInputReceiverEnabled(False) turns it off.
+#   5. body.GetPos() is a LIVE REFERENCE.  Stash it, move the body, compare, and
+#      you have compared a value with itself.  pose_of() copies on the way out.
+#   6. The body a raycast returns is a FRESH SWIG proxy, so `hit is my_body` is
+#      False for the same C++ object.  Match on SetTag/GetTag instead.
 #
-# ...and a fifth that is specific to looking straight down: DO NOT.  Irrlicht's
+# ...and a seventh that is specific to looking straight down: DO NOT.  Irrlicht's
 # CCameraSceneNode detects an up-vector parallel to the view direction and fixes
 # it by nudging up.X, which silently rotates the whole image 90 degrees away from
 # the basis the ray maths assumes.  CAM_TILT leans the camera a few degrees off
@@ -108,7 +114,7 @@ STEP = 2e-3
 RENDER_FPS = 50
 WIN_W, WIN_H = 1280, 800
 
-CAM_TILT = 0.14      # camera offset in -Y per metre of height. See note 5 above.
+CAM_TILT = 0.14      # offset in -Y per metre of height. Never 0: see the header.
 CAM_H0 = 22.0        # metres above the ground
 CAM_H_MIN, CAM_H_MAX = 4.0, 60.0
 PAN_LIMIT = 26.0
@@ -650,8 +656,11 @@ def main(headless_script=None, use_panel=True, out_path=None):
         if spin:
             it["yaw"] += spin * ROT_SPEED * STEP
         if drag is None:
-            it["x"] += -s_in * NUDGE_SPEED * STEP      # left arrow -> -X
-            it["y"] += (th - br) * NUDGE_SPEED * STEP  # up arrow   -> +Y
+            # Screen right IS world +X and screen up IS world +Y in this view
+            # (verified against the rendered image), so the arrows map straight
+            # through with no sign to remember.
+            it["x"] += s_in * NUDGE_SPEED * STEP       # right arrow -> +X
+            it["y"] += (th - br) * NUDGE_SPEED * STEP  # up arrow    -> +Y
         for j in items:
             apply_pose(j, snap, grid)
 

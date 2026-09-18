@@ -69,25 +69,39 @@
 #         one scripted push, no windows, the recovery trace printed as a table.
 #         Add --repeat 5 to get the run-to-run band instead of one number.
 #
-#     conda run -n chrono1187 python hil_push.py --sweep 100:600:50 --trials 5 --refine
-#         escalating pushes until the controller loses, with a pass RATE at each
-#         magnitude, then a bisection on the always-recovers/always-falls
-#         bracket.  This is the deliverable.
+#     conda run -n chrono1187 python hil_push.py --sweep 250:450:25 --fresh --full
+#         escalating pushes until the controller loses.  --fresh rebuilds the
+#         robot for each trial, which is the only version of this number that
+#         reproduces (see evaluate).  This is the deliverable.
 #
 # WHAT IT MEASURES, on the Go2 with PART 9's PD stance controller (15.02 kg,
 # standing at base z 0.2715 m, uprightness 0.9997), pushed at the base COM for
-# 50 ms, 5 trials per magnitude:
+# 50 ms, one cold-start trial per magnitude.  These reproduced digit for digit
+# in a separate process:
 #
-#     forward +X    <= 300 N (15.0 N.s)   5/5 recover, peak dz 2.2 cm, ~0.9 s
-#                      338 N (16.9 N.s)   5/5 recover, but 334 N has gone 2/5
-#                   >= 350 N (17.5 N.s)   0/5, flat on its back, up = -1.0
-#     lateral +Y    <= 280 N (14.0 N.s)   5/5 recover, peak dz 2.6 cm, ~1.5 s
-#                   >= 300 N (15.0 N.s)   0/5, on its side, up = -0.35
+#     forward +X    325 N (16.25 N.s)   recovers: -2.9 cm, up 0.889, back in 1.4 s
+#                   330 N (16.50 N.s)   falls:   -20.9 cm, up -1.00, 67 cm away
+#     lateral +Y    280 N (14.00 N.s)   recovers: -2.6 cm, up 0.917, back in 1.6 s
+#                   290 N (14.50 N.s)   falls:   -20.1 cm, up -0.35, 47 cm away
 #
-# Sideways is the weak axis by about 15 percent, which is what a quadruped's
-# support polygon says it should be, and the failure is a cliff rather than a
-# slope: 338 N loses 2.9 cm of height and comes back, 350 N ends upside down
-# 59 cm away.  That is a stance controller with no stepping reflex, exactly.
+# Two things to take from that.  Sideways is the weak axis by 15 percent, which
+# is what a quadruped's support polygon says it should be.  And the failure is a
+# CLIFF, not a slope: five newtons separates a 2.9 cm dip from ending upside
+# down two thirds of a metre away.  That is a stance controller with no stepping
+# reflex, exactly -- once the COM leaves the support polygon there is no
+# mechanism left to bring it back, so there is no graceful degradation to see.
+#
+# WHERE it lands matters as much as how hard.  Same 250 N lateral push, 12.5 N.s
+# every time, moved around the torso:
+#
+#     at the COM          recovers, -1.9 cm, up 0.963
+#     15 cm forward       recovers, -1.0 cm, up 0.995     (near a front foot)
+#     15 cm back          recovers, -2.0 cm, up 0.967
+#     5 cm higher up      FALLS,   -20.1 cm, up -0.351
+#
+# Five centimetres of moment arm is the difference between a wobble and a fall,
+# at an identical impulse.  That is the argument for picking the point by
+# clicking on the robot rather than pushing the COM and calling it a test.
 #
 # WHAT YOU CAN CLICK.  Picking is a raycast against COLLISION geometry, and
 # scene_go2 deliberately enables that on the torso and the four feet only: the
@@ -1272,9 +1286,11 @@ def build_parser():
     p.add_argument("--mag", type=float, default=150.0, help="N")
     p.add_argument("--dur", type=float, default=0.05, help="s")
     p.add_argument("--dir", default="1,0,0",
-                   help="x,y,z or az=30,el=-10 or +y")
+                   help="x,y,z or az=30,el=-10 or +y. A leading minus needs "
+                        "the equals form: --dir=-1,0,0")
     p.add_argument("--point", default=None,
-                   help="world x,y,z for the application point (headless)")
+                   help="world x,y,z for the application point (headless). "
+                        "Same rule: --point=-0.06,0,0.27")
     p.add_argument("--repeat", type=int, default=1,
                    help="headless: fire the same push N times, resetting between")
     p.add_argument("--watch", type=float, default=3.0,
