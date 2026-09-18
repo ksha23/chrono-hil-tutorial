@@ -209,8 +209,10 @@ class DirectInput:
          # camera, deliberately on keys so the mouse stays free for grabbing
          "a": 0, "d": 2, "w": 13, "s": 1, "r": 15, "f": 3,
          # rotate the drag plane -> this is the depth control
-         "q": 12, "e": 14}
-    EDGE = {"z": "f", "x": "n", "c": "r", "t": "m", "rbracket": "u", "lbracket": "d"}
+         "q": 12, "e": 14,
+         "esc": 53}
+    EDGE = {"z": "f", "x": "n", "c": "r", "t": "m", "rbracket": "u", "lbracket": "d",
+            "esc": "q"}
 
     def __init__(self, vis, title, content_w, content_h):
         import Quartz, AppKit
@@ -806,11 +808,18 @@ def main(mode, headless_script=None, use_udp=False):
           "  Q/E while dragging: rotate the drag plane - this is the depth control\n"
           "  camera (mouse is not used for it): A/D orbit   W/S zoom   R/F height\n")
 
+    # PART 1, applied here. Without it this loop steps as fast as the machine
+    # allows -- about fifty times real time on this Mac -- so a 1.2 m/s handle
+    # covers 60 m/s of scene, the placement box is gone before you see it, and a
+    # passive arm looks like it exploded. Everything downstream of this was being
+    # tuned against a clock running fifty times too fast.
+    rt_timer = chrono.ChRealtimeStepTimer()
     render_every = max(1, int(round(1.0 / (RENDER_FPS * STEP))))
     fired = set()
     n = 0
     t0 = time.perf_counter()
-    while vis.Run():
+    break_out = False
+    while vis.Run() and not break_out:
         t = system.GetChTime()
         if headless_script is not None:
             if t > headless_script["until"]:
@@ -857,6 +866,9 @@ def main(mode, headless_script=None, use_udp=False):
             elif c == "d":
                 lift = -1.0 if lift >= 0.0 else 0.0
                 print(f"[lift] {'down' if lift < 0 else 'off'}")
+            elif c == "q":
+                print("[quit]")
+                break_out = True
             elif c == "r":
                 if not kinematic and held:
                     grabber.release(); held = False
@@ -973,6 +985,8 @@ def main(mode, headless_script=None, use_udp=False):
             h.update()
         system.DoStepDynamics(STEP)
         n += 1
+        if headless_script is None:
+            rt_timer.Spin(STEP)      # hold the loop to wall-clock speed
 
     if headless_script and headless_script.get("shot"):
         vis.BeginScene(); vis.Render(); vis.EndScene()
