@@ -22,6 +22,31 @@ from .urdf import make_chrono_safe_urdf
 
 GO2_URDF = _GO2_URDF_DEFAULT
 
+def draggable_bodies(system):
+    """Every body a person can see and could therefore expect to take hold of.
+
+    Dynamic, and carrying visual geometry. Those two conditions are the whole
+    rule, and they are the rule because they are what the PERSON can tell: if it
+    is on screen it should respond, and if it is bolted down or is an invisible
+    coordinate frame it should not be offered.
+
+    This replaces a hand-written list of name fragments. That list happened to
+    cover every visible link on the Go2, but only by luck -- it said
+    "hip, calf, thigh, foot, base", so the day somebody adds a visible part
+    whose name is none of those, it silently cannot be grabbed, and the failure
+    looks like the click not registering.
+    """
+    out = []
+    for b in system.GetBodies():
+        if b.IsFixed():
+            continue
+        vm = b.GetVisualModel()
+        if vm is None or vm.GetNumShapes() == 0:
+            continue
+        out.append(b)
+    return out
+
+
 def ground_plane(system, size=20.0):
     """The floor, with whichever contact material this system can actually use.
 
@@ -171,10 +196,7 @@ def scene_go2(system):
     # inertial so the parser does not segfault on them, and at 1 g the grab
     # spring is 8 N/m: you can pick one and then not move it, which reads as the
     # click having failed. You cannot meaningfully drag a coordinate frame.
-    grabbable = [b for b in system.GetBodies()
-                 if b.GetMass() > 0.01
-                 and any(k in b.GetName()
-                         for k in ("hip", "calf", "thigh", "foot", "base"))]
+    grabbable = draggable_bodies(system)
     base = [b for b in system.GetBodies() if b.GetName() == "base"][0]
     return grabbable, 0.9, hint, base
 
@@ -289,10 +311,7 @@ def scene_arm(system, actuated=True):
     # massless frames the URDF uses to hang the hand off link7, and a zero-mass
     # body on the end of a grab spring is a division by nothing. So does the
     # bolted-down base -- see the mouse handler in main().
-    grabbable = [b for b in system.GetBodies()
-                 if b.GetName().startswith("panda") and not b.IsFixed()
-                 and b.GetVisualModel() is not None
-                 and b.GetVisualModel().GetNumShapes() > 0]
+    grabbable = draggable_bodies(system)
     # No private stiffness here any more. The arm needed one only because the
     # shared setting commanded 371 g; with the acceleration budget in config
     # the same number works for every scene.

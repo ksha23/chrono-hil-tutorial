@@ -16,7 +16,7 @@ lives under chronohil.input.window and is optional.
 """
 
 from .chrono_env import chrono, require_window
-from .config import (GRAB_MAX_SPEED, GRAB_OMEGA, GRAB_REACH, GRAB_ZETA,
+from .config import (GRAB_MAX_SPEED, GRAB_MIN_MASS, GRAB_OMEGA, GRAB_REACH, GRAB_ZETA,
                      HANDLE_SPEED, RENDER_FPS, STEP, UDP_PORT)
 from .controllers import FreeDriveJoint, LimpJoint, StanceHolder
 from .picking import Grabber, pick_along_ray, pick_at_crosshair, pick_near_ray
@@ -26,7 +26,7 @@ from .urdf import make_chrono_safe_urdf
 
 __all__ = [
     "chrono", "require_window", "STEP", "RENDER_FPS", "HANDLE_SPEED", "UDP_PORT",
-    "GRAB_OMEGA", "GRAB_ZETA", "GRAB_REACH", "GRAB_MAX_SPEED",
+    "GRAB_OMEGA", "GRAB_ZETA", "GRAB_REACH", "GRAB_MAX_SPEED", "GRAB_MIN_MASS",
     "pick_along_ray", "pick_near_ray", "pick_at_crosshair", "Grabber",
     "LimpJoint", "FreeDriveJoint", "StanceHolder",
     "Go2Policy", "find_go2_policy",

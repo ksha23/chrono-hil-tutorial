@@ -16,7 +16,8 @@ import math          # set_plane's rotation. Nothing headless touches set_plane,
                      # that does not use a mouse still passed.
 
 from .chrono_env import chrono
-from .config import GRAB_MAX_SPEED, GRAB_OMEGA, GRAB_REACH, GRAB_ZETA
+from .config import (GRAB_MAX_SPEED, GRAB_MIN_MASS, GRAB_OMEGA, GRAB_REACH,
+                     GRAB_ZETA)
 
 def pick_along_ray(system, start, end):
     """The primitive a mouse click would use. Returns (body, world_point) or None."""
@@ -169,7 +170,7 @@ class Grabber:
         # 7-link chain needs a tenth of that, or yanking one link whips the whole
         # arm at tens of m/s and drives it through the floor.
         omega = getattr(self.system, "grab_omega", GRAB_OMEGA)
-        m = max(body.GetMass(), 1e-3)
+        m = max(body.GetMass(), GRAB_MIN_MASS)
         k = m * omega * omega
         c = 2.0 * m * omega * GRAB_ZETA
         # Belt and braces against tunnelling: a grabbed body may not move faster

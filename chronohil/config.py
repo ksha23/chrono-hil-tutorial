@@ -40,4 +40,20 @@ GRAB_ZETA = 1.0           # critically damped
 GRAB_REACH = 0.30         # m, the furthest the handle may sit from the held point
 GRAB_MAX_ACCEL = GRAB_OMEGA * GRAB_OMEGA * GRAB_REACH   # 270 m/s^2, stated so a
                           # change to either number shows up in the other
-GRAB_MAX_SPEED = 2.5      # m/s: a held body cannot outrun contact detection
+# ...and the limit of that argument, which is that it assumes a FREE body.
+# A foot on a driven leg is not free: what resists you is the joint controller
+# and the inertia of the whole limb, not the 40 g of toe. Scaling by the
+# grabbed link's own mass gives a Go2 foot a 36 N/m spring and a 10.8 N pull,
+# and it moves 7 mm -- which reads as the grab not working at all.
+#
+# So the effective mass has a floor. Below it you are not accelerating a free
+# body, you are leaning on a mechanism, and the mass of the part you happened to
+# take hold of is the wrong number. Measured on a Go2 foot: 7 mm at no floor,
+# 412 mm at 1 kg, and the peak speed anywhere in the robot FALLS from 3.18 m/s
+# (at a 2 kg floor) to 1.18. Heavier bodies are unaffected, since the floor
+# never applies to them.
+GRAB_MIN_MASS = 1.0       # kg of effective inertia, at minimum
+
+GRAB_MAX_SPEED = 2.5      # m/s: a held body cannot outrun contact detection,
+                          # which is what bounds the outcome when the floor
+                          # above gives a light body a stiff spring
