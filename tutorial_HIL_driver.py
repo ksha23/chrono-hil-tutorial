@@ -152,12 +152,22 @@ class DriverInputs:
     """The whole ChDriver contract, in Python.
 
     ChDriver is a container for three numbers and the accessors that read them
-    back; nothing about it is vehicle-specific except that its constructor asks
-    for a ChVehicle.  The rover and the crane (PART 8) have no ChVehicle, so
-    they use this instead, and every line of the simulation loop stays the same.
+    back.  The rover and the crane (PART 8) have no ChVehicle to hand it, so
+    they use this stand-in instead, and every line of the simulation loop stays
+    the same.
 
-    Worth reading as the answer to "what does Chrono actually require of a
-    human interface": this class, and nothing else.
+    Worth being precise about what this is and is not.  It is the ChDriver
+    contract, which is a Chrono::VEHICLE contract -- steering, throttle and
+    braking are vehicle channels, and ChDriver's own constructor demands a
+    ChVehicle&.  Chrono itself requires nothing of a human interface: the
+    crane's entire input surface is two SetSetpoint() calls on a
+    ChFunctionSetpoint, and it would be happy with one signed axis per motor.
+
+    The three numbers are a convention this tutorial adopts so that one loop
+    and one operator console can drive a car, a rover and a crane without
+    changing either.  plant.apply() is where they are given their meaning, and
+    the crane shows what the convention costs: it has to compute
+    throttle - braking to recover the signed axis it wanted in the first place.
     """
 
     def __init__(self):
@@ -722,7 +732,7 @@ def main():
                 for command in device.take_gear_commands():
                     gearbox.command_char(command)
 
-        # Get driver inputs (three floats) - this is the whole human-in-the-loop contract
+        # Get driver inputs (three floats) - the shape every plant here is driven through
         driver_inputs = driver.GetInputs()
 
         # PART 8: hand the three numbers to whatever is being controlled. For a
