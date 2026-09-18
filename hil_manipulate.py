@@ -728,6 +728,12 @@ def scene_arm(system, actuated=True):
         raise SystemExit(f"Franka URDF not found at {urdf}")
     p = parsers.ChParserURDF(urdf)
     p.SetAllJointsActuationType(parsers.ChParserURDF.ActuationType_FORCE)
+    # The Panda's collision geometry is OBJ triangle meshes, and mesh-mesh
+    # contact is both slow and generous with contact points: upright and touching
+    # nothing the arm still reported 427 contacts and an RTF of 1.34, i.e. slower
+    # than real time before it had even fallen over. Convex hulls are the right
+    # shape for rigid links anyway.
+    p.SetAllBodiesMeshCollisionType(parsers.ChParserURDF.MeshCollisionType_CONVEX_HULL)
     mat = chrono.ChContactMaterialData()
     mat.mu = 0.6
     p.SetDefaultContactMaterial(mat)
@@ -745,9 +751,12 @@ def scene_arm(system, actuated=True):
     # at their shared joint.
     ARM_FAMILY = 3
     for b in system.GetBodies():
-        if b.IsFixed() or not b.GetName().startswith("panda"):
+        if not b.GetName().startswith("panda"):
             continue
-        b.EnableCollision(True)
+        # The base link is fixed, and skipping fixed bodies left it outside the
+        # family -- so the arm collided with its own base.
+        if not b.IsFixed():
+            b.EnableCollision(True)
         cm = b.GetCollisionModel()
         if cm:
             cm.SetFamily(ARM_FAMILY)

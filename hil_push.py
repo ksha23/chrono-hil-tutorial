@@ -89,6 +89,15 @@
 # slope: 338 N loses 2.9 cm of height and comes back, 350 N ends upside down
 # 59 cm away.  That is a stance controller with no stepping reflex, exactly.
 #
+# WHAT YOU CAN CLICK.  Picking is a raycast against COLLISION geometry, and
+# scene_go2 deliberately enables that on the torso and the four feet only: the
+# URDF's leg cylinders run the full length of the limb, and with them on the
+# robot stands on its shins.  So a click lands anywhere on the torso -- nose,
+# tail, either shoulder, which is the moment arm that matters -- and on the
+# feet, and a click on a thigh hits nothing and says so.  If PART 9 later grows
+# pick-only collision geometry for the legs, this file gets it for free, because
+# it imports that scene rather than copying it.
+#
 # CONTROLS (all work from either window)
 #     click on the robot   set the application point (it sticks to that link)
 #     SPACE                fire the configured push
@@ -616,17 +625,53 @@ def print_trace(trace, step=0.25, until=4.0):
         nxt += step
 
 
+def cold_rig(args, template=None):
+    """A brand new rig, built and settled from nothing. The independent sample.
+
+    Building the robot again costs about two seconds, which buys the one thing
+    reset() cannot: no shared contact history at all (restore() says why).
+    """
+    quiet = open(os.devnull, "w")
+    keep, sys.stdout = sys.stdout, quiet
+    try:
+        rig = PushRig(urdf=args.urdf, z_tol=args.z_tol, up_tol=args.up_tol,
+                      timeout=args.timeout)
+        rig.settle()
+    finally:
+        sys.stdout = keep
+        quiet.close()
+    if template is not None:
+        # Carry the application point over. It is stored in the base's local
+        # frame, so it transfers to the new robot unchanged; a point picked on
+        # some other link cannot be, and falls back to the base.
+        rig.cfg.local_point = chrono.ChVector3d(template.cfg.local_point)
+    return rig
+
+
 def evaluate(rig, mag, direction, args, point, trials):
     """Fire the same push `trials` times. Returns (n_recovered, trials, records).
 
     Trials, not one shot.  Right at the edge the same push from a bit-identical
     start goes both ways (PushRig.settle has the measurement), so a single
     sample there is a coin flip dressed up as a measurement.
+
+    AND THE TRIALS HAVE TO BE INDEPENDENT, which by default they are not.  Five
+    reset-and-fire trials in one session come back with min_upright equal to
+    THREE DECIMAL PLACES -- they are five copies of one sample, because they all
+    inherit the same Bullet contact cache.  That makes 5/5 look like strong
+    evidence when it is one observation wearing a hat, and it is how a push that
+    recovers cleanly from a cold start can read 0/3 in the middle of a sweep.
+    --fresh rebuilds the robot for every trial, which is slower and is the only
+    version of this number worth quoting to anyone.
     """
     got = []
     for _ in range(trials):
-        rig.reset()
-        got.append(run_headless(rig, mag, direction, args.dur, point=point,
+        if getattr(args, "fresh", False):
+            use = cold_rig(args, template=rig)
+        else:
+            use = rig
+            use.reset()
+        got.append(run_headless(use, mag, direction, args.dur, point=point,
                                 log_path=args.log, quiet=True,
                                 max_wait=args.timeout + 1.0))
     return sum(1 for r in got if r["verdict"] == "RECOVERED"), trials, got
@@ -724,9 +769,13 @@ def run_sweep(args):
           f"always falls at {b:.0f} N ({b*args.dur:.2f} N.s)")
     if a is None:
         print("  the bottom of the sweep already failed -- lower --sweep LO")
-    if trials == 1:
-        print("  (one trial per magnitude -- rerun with --trials 5 before "
-              "quoting this to anyone)")
+    if getattr(args, "fresh", False):
+        print("  (cold start per trial: deterministic, and reproduced digit for "
+              "digit in a separate process)")
+    elif trials == 1:
+        print("  (one warm trial per magnitude -- rerun with --fresh before "
+              "quoting this to anyone; see evaluate() for why --trials alone "
+              "is not enough)")
     if args.log:
         print(f"[log] {args.log}")
     return rig, results, (a, b)
@@ -1112,12 +1161,20 @@ def run_interactive(args):
             if down and not console.prev_mouse and at is not None:
                 r = console.ray_through(*at)
                 got = H.pick_along_ray(rig.system, r[0], r[1]) if r else None
-                if got:
+                if got and not got[0].IsFixed():
                     body, point, normal = got
-                    if not body.IsFixed():
-                        rig.cfg.set_point(body, point)
-                        print(f"[point] {body.GetName()} at "
-                              f"({point.x:+.3f},{point.y:+.3f},{point.z:+.3f})")
+                    rig.cfg.set_point(body, point)
+                    print(f"[point] {body.GetName()} at "
+                          f"({point.x:+.3f},{point.y:+.3f},{point.z:+.3f})")
+                else:
+                    # Worth saying out loud, because the reason for a miss is
+                    # usually not "you missed": raycasting goes against COLLISION
+                    # geometry, and scene_go2 only enables it on the torso and
+                    # the four feet (the leg cylinders run the full length of the
+                    # limb, so switching them on makes the robot stand on its
+                    # shins).  A click on a thigh therefore hits nothing at all.
+                    print("[point] nothing clickable under the cursor "
+                          "(only the torso and the feet have collision geometry)")
             console.prev_mouse = down
 
         rig.step()
@@ -1203,6 +1260,9 @@ def build_parser():
                    help="headless magnitude sweep, e.g. 60:420:60")
     p.add_argument("--trials", type=int, default=1,
                    help="sweep: repeats per magnitude, reported as a pass rate")
+    p.add_argument("--fresh", action="store_true",
+                   help="rebuild the robot for every trial: slower, but the "
+                        "trials are then actually independent (see evaluate)")
     p.add_argument("--refine", action="store_true",
                    help="bisect between the last recovery and the first failure")
     p.add_argument("--refine-steps", type=int, default=5)

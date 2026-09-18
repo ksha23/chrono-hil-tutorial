@@ -124,6 +124,7 @@ ZOOM_RATE = 0.9       # per second
 
 GROUND_HALF = 32.0
 GRID_HALF = 20.0
+TAG0 = 1000           # placeable bodies get tags TAG0, TAG0+1, ...; see build_scene
 
 
 # -----------------------------------------------------------------------------
@@ -258,7 +259,7 @@ def build_scene(system):
     add_grid(system)
     mat = chrono.ChContactMaterialNSC()
     items = []
-    for name, kind, dims, (x, y), col in SCENE:
+    for i, (name, kind, dims, (x, y), col) in enumerate(SCENE):
         if kind == "box":
             sx, sy, sz = dims
             # collide=True: the raycast is how the mouse finds this object, and a
@@ -272,12 +273,17 @@ def build_scene(system):
             z = h * 0.5
             radius = r
         b.SetName(name)
+        # A raycast hands back a body through CastToChBody, and SWIG builds a
+        # FRESH Python proxy for it every time -- so `hit_body is my_body` is
+        # False even when they are the same C++ object, silently, and the pick
+        # looks like it found nothing.  Tag the bodies and compare tags.
+        b.SetTag(TAG0 + i)
         b.SetFixed(True)              # kinematic: SetPos is the only thing that moves it
         b.SetPos(chrono.ChVector3d(x, y, z))
         b.GetVisualShape(0).SetColor(chrono.ChColor(*col))
         system.AddBody(b)
-        items.append({"body": b, "name": name, "z": z, "radius": radius,
-                      "colour": col, "home": (x, y, 0.0),
+        items.append({"body": b, "name": name, "tag": TAG0 + i, "z": z,
+                      "radius": radius, "colour": col, "home": (x, y, 0.0),
                       "x": x, "y": y, "yaw": 0.0})
     return items
 
@@ -497,6 +503,7 @@ def main(headless_script=None, use_panel=True, out_path=None):
     system.SetSleepingAllowed(False)
 
     items = build_scene(system)
+    by_tag = {it["tag"]: it for it in items}
     halo, halo_shape = make_halo(system)
     if out_path is None:
         out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -611,8 +618,7 @@ def main(headless_script=None, use_panel=True, out_path=None):
             if r:
                 got = H.pick_along_ray(system, r[0], r[1])
                 if got:
-                    body = got[0]
-                    hit = next((it for it in items if it["body"] is body), None)
+                    hit = by_tag.get(got[0].GetTag())    # NOT `is`; see build_scene
                     if hit is not None:
                         sel = items.index(hit)
                         picked_now = hit
@@ -684,12 +690,14 @@ def main(headless_script=None, use_panel=True, out_path=None):
                     ["drag to move   Q/E rotate   arrows nudge   Z snap   [ ] grid",
                      "X select   T dump to place_layout.py   C reset   Esc quit"])
 
-        hook = (headless_script or {}).get("on_frame") if headless_script else None
-        if hook and n % render_every == 0:
+        # Every STEP, not every render frame: a pick is an edge that lives for a
+        # single step, so sampling at 50 Hz would see it one time in ten.
+        hook = headless_script.get("on_frame") if headless_script else None
+        if hook:
             hook({"t": t, "n": n, "items": items, "sel": sel, "drag": drag,
                   "picked": picked_now, "readout": readout(items),
                   "vis": vis, "caster": caster, "cursor": at, "down": down,
-                  "snap": snap, "grid": grid})
+                  "snap": snap, "grid": grid, "system": system})
 
         system.DoStepDynamics(STEP)
         n += 1
