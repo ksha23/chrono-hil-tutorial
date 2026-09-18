@@ -108,6 +108,7 @@ import pychrono.irrlicht as irr
 # PART 9 already owns the awkward parts: reading the OS mouse and keyboard,
 # turning a pixel into a world ray, and raycasting the collision system.  None of
 # that is reimplemented here.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 import hil_manipulate as H
 
 STEP = 2e-3

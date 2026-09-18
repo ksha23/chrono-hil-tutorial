@@ -1438,6 +1438,25 @@ if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     use_udp = "--udp" in sys.argv
     mode = args[0] if args else "arm"
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print(__doc__ or "")
+        print(f"usage: python hil_manipulate.py [{' | '.join(SCENES)}] [--udp]\n"
+              "\n"
+              "  go2       a Unitree Go2 held up by a trained locomotion policy.\n"
+              "            Drag a leg and it steps to keep its feet.\n"
+              "  arm       a Franka Panda with its motors holding position.\n"
+              "            Drag a link and it follows your hand, then returns.\n"
+              "  arm-limp  the same arm with the motors off: it collapses, and\n"
+              "            you pose the dead weight by hand.\n"
+              "  place     kinematic placement, no dynamics.\n"
+              "\n"
+              "  --udp     take input from a second process instead of the\n"
+              "            window (see archive/operator_console.py)\n"
+              "\n"
+              "In the 3D window: drag with the mouse to pull on a link, Q/E turn\n"
+              "the drag plane to reach nearer or further, A/D/W/S/R/F move the\n"
+              "camera, ESC quits.")
+        raise SystemExit(0)
     if mode not in SCENES:
         raise SystemExit(
             f"usage: python hil_manipulate.py [{' | '.join(SCENES)}] [--udp]\n"

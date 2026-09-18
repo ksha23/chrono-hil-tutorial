@@ -1,21 +1,48 @@
 # Chrono support for human-in-the-loop simulation (PyChrono tutorial)
 
-Run Chrono in real time with a person providing live control input.
+A person's action changes the state of a running simulation, the simulation's
+response changes what that person does next, and the cycle closes fast enough
+that they can keep reacting. That is what this tutorial means by
+human-in-the-loop, and everything here is an instance of it.
 
-The two patterns worth taking away: keeping a simulation real-time (Part 1)
-and closing an external device's control loop back to it (Part 4). Both show
-up anywhere a person or outside hardware talks to a live simulation. Parts 2
-and 3 are two ways to feed a human's input in; Parts 5-8 are bonus material,
-not the point.
+## Run the demos
 
-The slide deck (`tutorial_HIL_driver.pptx`, and the same thing as a PDF) is a
-25-slide, 30-minute walkthrough. It opens on the gantry crane of Part 8 -- a
-swinging load that only a person can place -- so that the three-float driver
-contract arrives as the answer to a question rather than as a definition. The
-body is the two patterns that transfer: keeping the simulation real-time
-(Part 1) and closing an external device's loop back to it (Part 4), with the
-keyboard (Part 2) as the easy case in between. Parts 6-8 are one summary slide
-near the end; Parts 3 and 5 are repo-only.
+```bash
+conda env create -f environment.yml
+conda activate chrono-hil
+```
+
+On macOS, `unset DYLD_LIBRARY_PATH` first if your shell sets it: it shadows
+conda's libChrono and PyChrono fails to import with a missing-symbol error.
+
+| # | demo | command | what you do |
+|---|---|---|---|
+| 1 | Does the clock matter | `python tutorial_HIL_driver.py` | set `REALTIME = "none"`, watch the drift column run away, then set it back |
+| 2 | A person driving | `python tutorial_HIL_driver.py` | `INPUT_SOURCE = "keyboard"`; W/A/S/D drive, arrows are the camera |
+| 3 | Reaching in | `python hil_manipulate.py go2` | click and drag a leg; the locomotion policy steps to keep its feet |
+| 3b | | `python hil_manipulate.py arm` | drag a Franka link; `arm-limp` for motors off |
+| 4 | How hard can you shove it | `python hil_push.py` | click where the push lands, set direction and magnitude, SPACE fires |
+
+Demo 4 without a human, which is how the numbers in the talk were produced:
+
+```bash
+python hil_push.py --headless --sweep 1700:1950:50 --dir 1,0,0 --fresh
+```
+
+Every script takes `--help`. The switches for demos 1 and 2 live in the
+`CONFIGURATION` block at the bottom of `tutorial_HIL_driver.py`.
+
+## What is in here
+
+| path | |
+|---|---|
+| `tutorial_HIL_driver.py` | demos 1 and 2, and Parts 1 to 8. Imports `hil_scene`, `hil_gearbox`, `hil_plants` |
+| `hil_manipulate.py` | demo 3: picking and dragging, the Go2 policy, the Franka |
+| `hil_push.py` | demo 4: the push rig and its panel |
+| `make_slides.py` | builds the deck; `--pdf` exports it too |
+| `experimental/` | the one-line SWIG change that would let PyChrono read its own window |
+| `archive/` | earlier demos, not presented: the placement tool and the UDP console |
+| `ASSETS.md` | where the vendored robot meshes and the policy came from |
 
 ## Setup
 

@@ -1059,17 +1059,16 @@ def build(check_only=False):
                f"is `{N['panda_accel']}`: through the floor in a single step."])
 
     showtime("reaching in and pulling on a robot",
-             "click a link and drag it while its controller fights to stay standing",
+             "click a link and drag it while its controller keeps working",
              "human input as a FORCE rather than as driver inputs, which is how "
              "everything that is not a vehicle gets a person in its loop",
-             ["Drag a leg while the locomotion policy steps to keep its feet",
-              "Drag a Franka link, hand-guided or fully unactuated",
-              "The same drag works on a 0.15 kg shin and a 2.7 kg arm link, "
-              "because the spring is built from the mass it is pulling"],
-             shots=["demo_go2.png", "demo_arm.png"],
-             note=["This is the clearest case of the definition on the whole "
-                   "deck: you pull, the controller resists, you feel it resist, "
-                   "and you pull differently."])
+             ["`Go2`, driven by a trained locomotion policy: pull on a leg and it "
+              "steps to keep its feet.",
+              "`Franka`, hand-guided: the motors hold position, and the arm "
+              "follows your hand and returns when you let go.",
+              "`Franka`, unactuated: the motors are off, so it collapses under "
+              "gravity and you can pose the dead weight by hand."],
+             shots=["demo_go2.png", "demo_arm.png"])
 
     api_slide("Taking the human out of the part that must repeat",
               ["# The pattern, not the API: decide which half of the human's input",
@@ -1090,27 +1089,22 @@ def build(check_only=False):
                "the inner loop, because being in it would destroy repeatability."])
 
     showtime("how hard can you shove it",
-             "click where the push lands, set direction and magnitude, fire a "
-             "measured impulse, and find the magnitude where recovery stops",
-             "robustness testing that produces a NUMBER, so the result can go in a "
-             "report and somebody else can reproduce it",
-             ["`The rig measures the controller.` Same robot, same push, same "
-              "50 ms window, two things holding it up:",
-              (f"a PD holding a stance: `{N['push_fwd_ok']}` recovers, "
-               f"`{N['push_fwd_fail']}` does not", 1),
-              (f"a trained locomotion policy: `{N['pol_fwd_ok']}` recovers, "
-               f"`{N['pol_fwd_fail']}` does not", 1),
-              f"Sideways is weaker for both: `{N['push_lat_ok']}`/"
-              f"`{N['push_lat_fail']}` for the stance, `{N['pol_lat_ok']}`/"
-              f"`{N['pol_lat_fail']}` for the policy.",
-              "The difference is that the stance can only stiffen. The policy "
-              "picks a foot up and steps into the shove, and will be carried five "
-              "metres doing it rather than fall over.",
-              "Same impulse, applied 5 cm higher up the torso: the verdict flips"],
-             shots=["demo_push.png"],
-             note=["That last line is the reason a human is still in this one. "
-                   "Where to push is a judgement call, and it changes the answer "
-                   "as much as how hard you push does."])
+             "click a point on the robot, set a direction and a magnitude, and "
+             "fire an impulse of fixed duration",
+             "it turns 'is this controller robust' into a number, which is "
+             "something you can put in a report and somebody else can reproduce",
+             ["The panel reports the impulse, the peak tilt, how far the robot "
+              "was carried, and how long it took to settle.",
+              "Sweep the magnitude and it finds the threshold. With the "
+              f"locomotion policy driving: `{N['pol_fwd_ok']}` recovers, "
+              f"`{N['pol_fwd_fail']}` does not. Sideways is weaker, at "
+              f"`{N['pol_lat_ok']}`/`{N['pol_lat_fail']}`.",
+              "Change the controller and the threshold moves. The same robot "
+              f"held by a PD stance instead tips at `{N['push_fwd_ok']}`, because "
+              "a stance can only stiffen while the policy steps into the push.",
+              "Where you click matters too: the same impulse 5 cm higher up the "
+              "torso can flip the verdict."],
+             shots=["demo_push.png"])
 
     # =========================================================================
     # 28-30. Close

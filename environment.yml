@@ -1,0 +1,28 @@
+# The environment every demo in this tutorial runs in.
+#
+#     conda env create -f environment.yml
+#     conda activate chrono-hil
+#
+# Versions are pinned to minor rather than to build strings, so this resolves on
+# Linux and Windows as well as on the macOS it was written on. PyChrono comes
+# from the projectchrono channel; build 1187 is the first with the vehicle
+# KeyboardMode::HELD API that Part 2 uses.
+name: chrono-hil
+channels:
+  - projectchrono
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pychrono=10.0.0
+  - numpy>=2.0
+  - pygame>=2.6          # the push configurator's panel window
+  - irrlicht=1.8.5       # the 3D window PyChrono renders into
+  - pip
+  - pip:
+      - torch>=2.4       # the Go2 locomotion policy; omit and it falls back to a PD stance
+      - trimesh>=4.0     # only needed to re-convert robot meshes, not to run
+      # macOS only: lets the mouse and keyboard be read on the 3D window itself.
+      # Harmless to drop on Linux and Windows.
+      - pyobjc-core ; sys_platform == 'darwin'
+      - pyobjc-framework-Cocoa ; sys_platform == 'darwin'
+      - pyobjc-framework-Quartz ; sys_platform == 'darwin'

@@ -45,6 +45,26 @@ import time
 import os
 import sys
 
+# --help before anything heavy: this script has no __main__ guard, it runs on
+# import, so a check placed further down never gets reached.
+if "-h" in sys.argv or "--help" in sys.argv:
+    print("usage: python tutorial_HIL_driver.py\n"
+          "\n"
+          "Configured by editing, not by flags: every switch is in the\n"
+          "CONFIGURATION block at the bottom of this file.\n"
+          "\n"
+          "  DEMO 1, does the clock matter\n"
+          "      INPUT_SOURCE = \"data\",  REALTIME = \"none\"  then \"vehicle\"\n"
+          "      Watch the drift column in the console run away, then not.\n"
+          "\n"
+          "  DEMO 2, a person driving\n"
+          "      INPUT_SOURCE = \"keyboard\",  KEYBOARD_MODE = \"held\"\n"
+          "      W/A/S/D drive. The arrow keys are the chase camera.\n"
+          "\n"
+          "  Also here, Parts 5 to 8: VEHICLE, TRANSMISSION, SCENE (\"mcity\")\n"
+          "  and PLANT (\"rover\", \"crane\").")
+    raise SystemExit(0)
+
 try:
     import pychrono as chrono
 except ImportError as exc:
