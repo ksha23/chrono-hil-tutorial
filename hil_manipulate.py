@@ -512,6 +512,34 @@ def ground_plane(system, size=20.0):
     return g
 
 
+class FreeDriveJoint:
+    """Cobot-style free drive: holds its pose, but yields to a sustained push.
+
+    Pure damping is not enough -- an arm under gravity simply falls over, which
+    is what the primitive three-link version did. A plain PD holding a fixed
+    target is the opposite problem: it springs back and you cannot pose it.
+
+    So the target LAGS the actual angle. Over a short push the joint feels like a
+    stiff spring; hold it somewhere for longer than the lag and that becomes the
+    new rest pose. This is how a real collaborative arm behaves in hand-guiding
+    mode, and it is what "move the arm by hand" needs.
+    """
+
+    KP = 240.0     # N.m per rad -- enough to carry the arm's own weight
+    KD = 14.0      # N.m per rad/s
+    TAU_MAX = 87.0  # N.m, the Panda's largest joint limit
+    FOLLOW = 0.0035  # per step: how fast the rest pose creeps to where you hold it
+
+    def __init__(self, motor, fn, target):
+        self.motor, self.fn, self.target = motor, fn, target
+
+    def update(self):
+        q = self.motor.GetMotorAngle()
+        self.target += (q - self.target) * self.FOLLOW
+        tau = self.KP * (self.target - q) - self.KD * self.motor.GetMotorAngleDt()
+        self.fn.SetConstant(max(-self.TAU_MAX, min(self.TAU_MAX, tau)))
+
+
 class StanceHolder:
     """One joint's PD law: the stand-in for a locomotion policy.
 
@@ -624,31 +652,52 @@ def scene_go2(system):
 
 
 def scene_arm(system):
-    """A passive serial arm: no motors at all, so it moves only because you move it."""
-    ground_plane(system, 10.0)
-    mat = chrono.ChContactMaterialNSC()
-    prev = chrono.ChBodyEasyCylinder(chrono.ChAxis_Z, 0.12, 0.20, 2000, True, False, mat)
-    prev.SetPos(chrono.ChVector3d(0, 0, 0.10))
-    prev.SetFixed(True)
-    system.AddBody(prev)
-    z = 0.20
-    grabbable = []
-    for i, length in enumerate((0.45, 0.40, 0.30)):
-        # collision OFF: consecutive links share a joint and so overlap, and the
-        # contact between them is what made the arm buzz rather than hang still.
-        link = chrono.ChBodyEasyBox(0.09, 0.09, length, 800, True, False, mat)
-        link.SetPos(chrono.ChVector3d(0, 0, z + length / 2))
-        link.SetName(f"link{i+1}")
-        system.AddBody(link)
-        joint = chrono.ChLinkLockRevolute()
-        axis = chrono.QuatFromAngleX(math.pi / 2) if i % 2 == 0 else chrono.QuatFromAngleY(math.pi / 2)
-        joint.Initialize(prev, link, chrono.ChFramed(chrono.ChVector3d(0, 0, z), axis))
-        system.AddLink(joint)
-        prev, z = link, z + length
-        grabbable.append(link)
-    return (grabbable, 1.4,
-            "no motors anywhere: the arm is limp and moves only where you put it",
-            grabbable[0])
+    """A real Franka Emika Panda, limp: no motors, just joint damping.
+
+    Was three primitive boxes on revolute joints, which is a triple pendulum --
+    released from a balanced vertical pose it falls and swings chaotically, and
+    at fifty times real time that looked like an explosion. This is an actual
+    7-DOF arm from Bullet's URDF (all-OBJ meshes, so Chrono's tiny_obj reader
+    takes them directly, and every link carries inertia so the parser survives).
+
+    Damping rather than motors is the point: "inactively controlled" means it
+    gives where you push it and stays there, instead of either fighting you or
+    flopping.
+    """
+    import pychrono.parsers as parsers
+    ground_plane(system, 6.0)
+    urdf = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "franka_assets", "panda_chrono.urdf")
+    if not os.path.exists(urdf):
+        raise SystemExit(f"Franka URDF not found at {urdf}")
+    p = parsers.ChParserURDF(urdf)
+    p.SetAllJointsActuationType(parsers.ChParserURDF.ActuationType_FORCE)
+    mat = chrono.ChContactMaterialData()
+    mat.mu = 0.6
+    p.SetDefaultContactMaterial(mat)
+    p.SetRootInitPose(chrono.ChFramed(chrono.ChVector3d(0, 0, 0), chrono.QUNIT))
+    p.PopulateSystem(system)
+
+    root = p.GetRootChBody()
+    if root:
+        root.SetFixed(True)          # bolt the base down
+
+    # Pure damping on every actuated joint. Without it the arm is a 7-link
+    # pendulum and never settles.
+    dampers = []
+    for link in system.GetLinks():
+        m = chrono.CastToChLinkMotorRotationTorque(p.GetChMotor(link.GetName()))
+        if m:
+            fn = chrono.ChFunctionConst(0.0)
+            m.SetMotorFunction(fn)
+            dampers.append(FreeDriveJoint(m, fn, m.GetMotorAngle()))
+    system.stance_holders = dampers
+
+    grabbable = [b for b in system.GetBodies()
+                 if b.GetName().startswith("panda_link") and not b.IsFixed()]
+    return (grabbable, 1.1,
+            "a limp Franka: no motors, only damping - push a link and it stays put",
+            root if root else grabbable[0])
 
 
 def scene_place(system):
