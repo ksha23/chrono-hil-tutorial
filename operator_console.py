@@ -33,6 +33,17 @@ import pygame
 
 SIM_HOST = sys.argv[1] if len(sys.argv) > 1 else "127.0.0.1"
 SIM_PORT = 9870
+
+# Resolve the host up front.  Without this the first sendto() throws a bare
+# socket.gaierror hundreds of frames later, and the usual cause is not a typo:
+# zsh does not treat '#' as a comment unless INTERACTIVE_COMMENTS is set, so a
+# pasted "python operator_console.py   # terminal 2" hands us '#' as the host.
+try:
+    socket.getaddrinfo(SIM_HOST, SIM_PORT, type=socket.SOCK_DGRAM)
+except socket.gaierror:
+    sys.exit(f"operator_console.py: cannot resolve {SIM_HOST!r} as the simulation host.\n"
+             f"  usage: python operator_console.py [<sim ip>]   (default 127.0.0.1)\n"
+             f"  if you pasted a trailing '# comment', drop it -- your shell passed it as an argument.")
 SEND_HZ = 50
 
 # How fast the key targets ramp (units per second)

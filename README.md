@@ -113,10 +113,21 @@ live axis/button numbers for your device -- no separate probe script needed.
 
 Part 4 needs nothing but a second terminal:
 
+Terminal 1, with `INPUT_SOURCE = "udp"`:
+
 ```bash
-python tutorial_HIL_driver.py          # terminal 1 (INPUT_SOURCE = "udp")
-python operator_console.py             # terminal 2 (or on another machine: python operator_console.py <sim ip>)
+python tutorial_HIL_driver.py
 ```
+
+Terminal 2 (add the simulation's IP instead to drive it from another machine):
+
+```bash
+python operator_console.py
+```
+
+Do not paste those with a trailing `# comment`: zsh only treats `#` as a comment
+when `INTERACTIVE_COMMENTS` is set, and otherwise hands it to the script as the
+simulation's hostname.
 
 ## Part 5: customize the built-in overlay
 
@@ -306,10 +317,12 @@ Dragging with a spring instead of teleporting is the point: the body still
 collides, still carries momentum, and a controller holding it still fights back.
 
 ```bash
-python hil_manipulate.py go2      # and operator_console.py in a second terminal
+python hil_manipulate.py go2
 python hil_manipulate.py arm
 python hil_manipulate.py place
 ```
+
+and `python operator_console.py` in a second terminal to drive it.
 
 | mode | what it shows |
 |---|---|
