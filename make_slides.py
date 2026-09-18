@@ -511,11 +511,11 @@ def build(check_only=False):
         bl, bt, bh = body.left, body.top, body.height
         body.left, body.top, body.height = bl, bt, bh
         body.width = Inches(body_w)
-        # Rough line budget: a 20pt bullet wraps at about 72 characters across
+        # Rough line budget: a 20pt bullet wraps at about 105 characters across
         # the full-width placeholder, proportionally fewer in a narrow column,
         # and the slide holds roughly 13 such lines above the note. Shrink
         # rather than overflow.
-        per_line = max(26, int(72 * body_w / 11.96))
+        per_line = max(30, int(105 * body_w / 11.96))
         est = sum(1 + len(it[0] if isinstance(it, tuple) else it) // per_line
                   for it in items)
         while size > 13 and est > (13 if not note else 11) * (20.0 / size):
@@ -536,7 +536,7 @@ def build(check_only=False):
             # Put the figure under the text, not on top of it. Text starts at
             # 1.44 in; a line costs size*1.25 pt plus the paragraph gap.
             text_bottom = 1.44 + est * (size * 1.25) / 72.0 + len(items) * gap / 72.0
-            top = max(3.05, text_bottom + 0.22)
+            top = max(3.05, text_bottom + 0.38)
             room = ((7.05 - note_height(note) - 0.18) if note else 7.00) - top
             if room > 0.9:
                 place_shots(s, shots, top=top, height=min(2.55, room))
@@ -667,17 +667,28 @@ def build(check_only=False):
                   "quadruped's leg all satisfy it, and they satisfy it the same way."])
 
     bullets("What a person in the loop is for",
-            ["Two reasons, and they are different jobs:",
-             "`The person is the SUBJECT.` You are measuring the human. What does "
-             "an operator do when the controls are delayed?",
-             "`The person is the CONTROLLER.` No controller you have can do the "
-             "task, so a human closes the loop.",
-             "Either way the simulator has to hold wall-clock time, or you are "
-             "measuring the simulator instead of the person."],
-            shots=["hil_rig.png"],
-            note=["The first reason is why pacing is not a detail. A human-factors "
-                  "result taken from a simulation running at 0.6x real time is a "
-                  "result about a slow simulation."])
+            ["`Measuring the person.` Human factors: what does an operator do when "
+             "the controls are delayed, when an assist takes authority, when a "
+             "hazard appears late?",
+             "`Training the person.` Here the simulator IS the product, and the "
+             "fidelity bar is whether it feels like the real thing.",
+             "`Collecting data from the person.` Demonstrations for imitation "
+             "learning, driver models, reference trajectories no controller would "
+             "have produced.",
+             "`Testing the machine against a person.` Someone perturbs a controller "
+             "in ways a scripted test would never have thought to try.",
+             "`Judging the machine by feel.` Reach in, pull on it, see whether it "
+             "behaves plausibly. Faster than any metric at answering 'something is "
+             "wrong here'.",
+             "`Designing shared control.` When authority is split between a person "
+             "and a controller, neither half can be evaluated alone.",
+             "`Setting a scene up.` Placing things by hand where a script would "
+             "take twenty guesses. Useful, and not in the loop."],
+            note=["Two different jobs hide in that list. Sometimes the person is "
+                  "the SUBJECT being measured; sometimes the person is the "
+                  "CONTROLLER, because nothing else can do the task. Either way the "
+                  "simulator has to hold wall-clock time, or you are measuring the "
+                  "simulator instead of the person."])
 
     bullets("A study Chrono has already carried",
             ["Remote car-following under latency. Forty participants, four groups "
@@ -688,7 +699,7 @@ def build(check_only=False):
              "Mitigation cut driving incidents 72%, though not significantly, and "
              "significantly lowered steering entropy at high speed. Adaptation "
              "across the three latency trials dominated the effect."],
-            shots=["remote_driving_study.png"],
+            shots=["hil_rig.png", "remote_driving_study.png"],
             note=["Ma, McDonald, Sha, Zhang, Xu, Negrut. \"Evaluating a "
                   "delay-compensated shared-control system in high- and low-speed "
                   "remote car-following.\""])
