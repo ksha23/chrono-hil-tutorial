@@ -1044,7 +1044,10 @@ def main(mode, headless_script=None, use_udp=False):
                         got = pick_near_ray(grabbable, r[0], d0 / d0.Length())
                     if got:
                         body, point, normal = got
-                        if body is not grabber.handle:
+                        # `is` compares Python proxies, and CastToChBody mints a
+                        # fresh one per call, so it never matched and this guard
+                        # did nothing. SWIG's __eq__ compares the C++ pointer.
+                        if grabber.handle is None or body != grabber.handle:
                             grabber.grab(body, point)
                             held = True
                             plane_angle = 0.0

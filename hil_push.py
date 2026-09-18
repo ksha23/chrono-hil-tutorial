@@ -825,6 +825,78 @@ class PushInput(H.DirectInput):
                 (-1.0 if self._key("lbracket") else 0.0) + (1.0 if self._key("rbracket") else 0.0))
 
 
+PANEL_TITLE = "PART 10: push configurator"
+
+
+# -----------------------------------------------------------------------------
+# The panel's mouse, read from macOS rather than from pygame
+# -----------------------------------------------------------------------------
+class _PanelPointer:
+    """Where the cursor is inside the panel window, and whether the button is down.
+
+    The panel could not be clicked, and the reason is not pygame's fault.  Two
+    windows in this process want the same Cocoa event queue: Irrlicht's device
+    calls nextEventMatchingMask itself every frame, and a press aimed at the
+    pygame window gets dequeued there and dropped, so the panel never becomes
+    the key window and never sees a MOUSEBUTTONDOWN.  Measured on this machine,
+    two identical runs of the same probe delivered 184 mouse events and then 0 --
+    decided entirely by which window happened to hold focus at the time.
+
+    The cursor and the button are global state though, and macOS will say where
+    the panel sits, so the panel can poll for its mouse exactly the way
+    DirectInput already does for the 3D view.  Focus stops mattering.
+
+    Non-macOS keeps the pygame path, where none of this applies.
+    """
+
+    def __init__(self, title, cw, ch):
+        import Quartz, AppKit                      # pyobjc, same as DirectInput
+        self.Q, self.AK = Quartz, AppKit
+        self.title, self.cw, self.ch = title.lower(), cw, ch
+        self._rect = None
+        self._age = 0
+
+    def rect(self):
+        """Screen rect of the panel window.  Cached; it can be dragged around."""
+        self._age -= 1
+        if self._rect is not None and self._age > 0:
+            return self._rect
+        wl = self.Q.CGWindowListCopyWindowInfo(
+            self.Q.kCGWindowListOptionOnScreenOnly
+            | self.Q.kCGWindowListExcludeDesktopElements,
+            self.Q.kCGNullWindowID)
+        for w in wl:
+            if self.title in (w.get("kCGWindowName") or "").lower():
+                b = w["kCGWindowBounds"]
+                self._rect = (b["X"], b["Y"], b["Width"], b["Height"])
+                self._age = 240          # this runs per physics step, not per frame
+                return self._rect
+        return self._rect
+
+    def pos(self, inside_only=True):
+        """Cursor in panel content pixels.
+
+        inside_only=False is for a drag already in progress: a slider you keep
+        pulling past the edge of the window should peg at its end, not freeze,
+        which is what every real slider does.
+        """
+        r = self.rect()
+        if r is None:
+            return None
+        wx, wy, ww, wh = r
+        loc = self.AK.NSEvent.mouseLocation()
+        screen_h = self.AK.NSScreen.screens()[0].frame().size.height
+        px = loc.x - wx
+        py = (screen_h - loc.y) - wy - (wh - self.ch)   # wh - ch is the title bar
+        if inside_only and not (0 <= px < self.cw and 0 <= py < self.ch):
+            return None
+        return int(px), int(py)
+
+    def down(self):
+        return bool(self.Q.CGEventSourceButtonState(
+            self.Q.kCGEventSourceStateHIDSystemState, 0))
+
+
 # -----------------------------------------------------------------------------
 # The panel: pygame, because the Irrlicht window cannot be read
 # -----------------------------------------------------------------------------
@@ -849,7 +921,7 @@ class PushPanel:
         import pygame
         self.pg = pygame
         pygame.init()
-        pygame.display.set_caption("PART 10: push configurator")
+        pygame.display.set_caption(PANEL_TITLE)
         self.screen = pygame.display.set_mode((self.W, self.H_))
         self.f = pygame.font.SysFont("Menlo, Monaco, monospace", 13)
         self.fb = pygame.font.SysFont("Menlo, Monaco, monospace", 15, bold=True)
@@ -857,6 +929,12 @@ class PushPanel:
         self.sliders = []     # filled by draw(), used by the next pump()
         self.buttons = []
         self.commands = []
+        self.prev_down = False
+        try:
+            self.os = _PanelPointer(PANEL_TITLE, self.W, self.H_)
+        except Exception as exc:     # not macOS, or pyobjc missing
+            print(f"[panel] OS mouse unavailable ({exc}); using pygame events")
+            self.os = None
 
     # -- widgets -------------------------------------------------------------
     def _slider(self, y, label, value, lo, hi, text, key):
@@ -954,32 +1032,68 @@ class PushPanel:
         for e in pg.event.get():
             if e.type == pg.QUIT:
                 self.commands.append("quit")
-            elif e.type == pg.MOUSEBUTTONDOWN and e.button == 1:
+                continue
+            if self.os is not None:
+                # Polled below instead.  Handling both sources would double-fire
+                # every button on the runs where pygame does happen to see the
+                # press, and the keys are already read OS-wide by PushInput.
+                continue
+            self._pump_event(cfg, e)
+        if self.os is not None:
+            self._pump_os(cfg)
+        out, self.commands = self.commands, []
+        return out
+
+    def _pump_os(self, cfg):
+        """The same hit tests, driven by polled state instead of by events."""
+        down = self.os.down()
+        if down and not self.prev_down:
+            at = self.os.pos()
+            if at is not None:
                 for rect, key, lo, hi, x0, w in self.sliders:
-                    if rect.collidepoint(e.pos):
+                    if rect.collidepoint(at):
                         self.drag = (key, lo, hi, x0, w)
-                        self._set(cfg, e.pos[0])
+                        self._set(cfg, at[0])
                         break
                 else:
                     for rect, cmd in self.buttons:
-                        if rect.collidepoint(e.pos):
+                        if rect.collidepoint(at):
                             self.commands.append(cmd)
                             break
-            elif e.type == pg.MOUSEBUTTONUP and e.button == 1:
-                self.drag = None
-            elif e.type == pg.MOUSEMOTION and self.drag:
-                self._set(cfg, e.pos[0])
-            elif e.type == pg.KEYDOWN:
-                if e.key == pg.K_SPACE:
-                    self.commands.append("fire")
-                elif e.key == pg.K_x:
-                    self.commands.append("reset")
-                elif e.key == pg.K_c:
-                    self.commands.append("clear")
-                elif e.key == pg.K_t:
-                    self.commands.append("log")
-        out, self.commands = self.commands, []
-        return out
+        elif down and self.drag is not None:
+            at = self.os.pos(inside_only=False)
+            if at is not None:
+                self._set(cfg, at[0])
+        elif not down:
+            self.drag = None
+        self.prev_down = down
+
+    def _pump_event(self, cfg, e):
+        pg = self.pg
+        if e.type == pg.MOUSEBUTTONDOWN and e.button == 1:
+            for rect, key, lo, hi, x0, w in self.sliders:
+                if rect.collidepoint(e.pos):
+                    self.drag = (key, lo, hi, x0, w)
+                    self._set(cfg, e.pos[0])
+                    break
+            else:
+                for rect, cmd in self.buttons:
+                    if rect.collidepoint(e.pos):
+                        self.commands.append(cmd)
+                        break
+        elif e.type == pg.MOUSEBUTTONUP and e.button == 1:
+            self.drag = None
+        elif e.type == pg.MOUSEMOTION and self.drag:
+            self._set(cfg, e.pos[0])
+        elif e.type == pg.KEYDOWN:
+            if e.key == pg.K_SPACE:
+                self.commands.append("fire")
+            elif e.key == pg.K_x:
+                self.commands.append("reset")
+            elif e.key == pg.K_c:
+                self.commands.append("clear")
+            elif e.key == pg.K_t:
+                self.commands.append("log")
 
     def _set(self, cfg, px):
         key, lo, hi, x0, w = self.drag
@@ -1167,12 +1281,18 @@ def run_interactive(args):
                 rig.cfg.set_direction(*ax)
 
         # Click on the 3D view picks the application point.  cursor_pixel()
-        # returns None when the cursor is outside that window, which is exactly
-        # what keeps panel clicks from being read as picks.
+        # returns None when the cursor is outside that window, which keeps most
+        # panel clicks from being read as picks -- but only while the two
+        # windows do not overlap.  Stack the panel over the 3D view and both
+        # rects contain the cursor, so a slider drag also fired a pick and
+        # printed "nothing clickable" at the person adjusting a slider.  The
+        # panel is the one in front, so it wins.
         if console is not None:
+            over_panel = (panel is not None and panel.os is not None
+                          and panel.os.pos() is not None)
             down = console.mouse_down()
             at = console.cursor_pixel()
-            if down and not console.prev_mouse and at is not None:
+            if down and not console.prev_mouse and at is not None and not over_panel:
                 r = console.ray_through(*at)
                 got = H.pick_along_ray(rig.system, r[0], r[1]) if r else None
                 if got and not got[0].IsFixed():
