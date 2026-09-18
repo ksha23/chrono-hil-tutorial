@@ -340,6 +340,20 @@ the view. Its input receiver is switched off, and the camera is on keys instead:
 | `Q` `E` *while dragging* | rotate the drag plane -- the depth control |
 | `A` `D` / `W` `S` / `R` `F` | camera orbit / zoom / height |
 
+The Go2's joints are **torque**-actuated with a PD stance controller
+(`StanceHolder`), not position-actuated. That distinction is the demo: a
+position-actuated joint is a *constraint*, so the solver holds its angle exactly
+and pulling a leg does nothing at all -- a soft grab cannot move it and a stiff
+one only destabilises the solver until the robot is flung across the scene.
+Torque actuation is compliant, so the leg gives when pulled and the controller
+pulls back when released.
+
+What you should see: grabbing a calf and dragging takes that leg's worst joint
+from about 3 degrees of error to 14, and releasing recovers it to about 11. It
+does not go all the way back, because the foot is planted and friction holds it
+there -- which is what a real quadruped does too. Lift the leg clear of the
+ground before releasing and the recovery is obvious.
+
 Dragging at a fixed distance from the camera confines the handle to a sphere, so
 a leg can be swung across the view but never pulled toward or away from it --
 which is why only some parts of a robot feel reachable. The cursor ray is instead

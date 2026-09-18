@@ -77,7 +77,8 @@ UDP_PORT = 9870
 STEP = 2e-3
 RENDER_FPS = 50
 HANDLE_SPEED = 1.2        # m/s at full stick
-GRAB_OMEGA = 18.0      # rad/s: how fast a grabbed body converges on the cursor
+GRAB_OMEGA = 90.0      # rad/s: how hard the cursor pulls. Has to beat the
+                       # stance controller or a held leg will not budge.
 GRAB_ZETA = 1.0        # critically damped
 GRAB_REACH = 3.0       # m: furthest the handle may sit from the held point
 
@@ -373,6 +374,17 @@ class Grabber:
         self.body = None
         self.plane_n = None
         self.plane_d = 0.0
+        # Genesis draws the held point, the line to the cursor and the drag plane.
+        # Without them you are steering something invisible, which is most of why
+        # this felt uncontrollable. The line is the one that matters.
+        self.link_shape = chrono.ChVisualShapeCylinder(0.006, 1.0)
+        self.link_shape.SetColor(chrono.ChColor(1.0, 0.55, 0.1))
+        self.link_body = chrono.ChBody()
+        self.link_body.SetFixed(True)
+        self.link_body.EnableCollision(False)
+        self.link_body.SetName("grab line")
+        self.link_body.AddVisualShape(self.link_shape)
+        system.AddBody(self.link_body)
 
     def set_plane(self, point, surf_n, cam_fwd, angle):
         """A plane through the grab point that the cursor ray is intersected with.
@@ -460,6 +472,29 @@ class Grabber:
     def force(self):
         return abs(self.spring.GetForce()) if self.spring else 0.0
 
+    def draw_link(self):
+        """Stretch the marker line between the held body and the handle."""
+        if self.body is None:
+            self.link_body.SetPos(chrono.ChVector3d(0, 0, -1000))   # parked offscreen
+            return
+        a = self.body.GetPos()
+        b = self.handle.GetPos()
+        d = b - a
+        length = d.Length()
+        if length < 1e-4:
+            return
+        ez = d / length
+        ref = chrono.ChVector3d(0, 0, 1)
+        if abs(ez.z) > 0.99:
+            ref = chrono.ChVector3d(1, 0, 0)
+        ex = ref.Cross(ez); ex = ex / ex.Length()
+        ey = ez.Cross(ex)
+        rot = chrono.ChMatrix33d()
+        rot.SetFromDirectionAxes(ex, ey, ez)
+        self.link_shape.GetGeometry().h = length   # ChCylinder's height is mutable
+        self.link_body.SetPos((a + b) * 0.5)
+        self.link_body.SetRot(rot.GetQuaternion())
+
 
 # -----------------------------------------------------------------------------
 # Scenes
@@ -473,6 +508,28 @@ def ground_plane(system, size=20.0):
     g.GetVisualShape(0).SetTexture(chrono.GetChronoDataFile("textures/concrete.jpg"), 8, 8)
     system.AddBody(g)
     return g
+
+
+class StanceHolder:
+    """One joint's PD law: the stand-in for a locomotion policy.
+
+    A real policy would read the whole robot state and emit twelve torques; this
+    reads one joint and emits one. What matters for the demo is identical --
+    something is actively holding a pose, so a human pulling on a leg is a
+    disturbance it has to reject.
+    """
+
+    KP = 26.0      # N.m per rad
+    KD = 0.7       # N.m per rad/s
+    TAU_MAX = 24.0  # N.m, roughly a Go2 joint's limit
+
+    def __init__(self, motor, fn, target):
+        self.motor, self.fn, self.target = motor, fn, target
+
+    def update(self):
+        err = self.target - self.motor.GetMotorAngle()
+        tau = self.KP * err - self.KD * self.motor.GetMotorAngleDt()
+        self.fn.SetConstant(max(-self.TAU_MAX, min(self.TAU_MAX, tau)))
 
 
 def scene_go2(system):
@@ -489,7 +546,14 @@ def scene_go2(system):
     feet.mu = 0.8
     feet.cr = 0.0
     p.SetDefaultContactMaterial(feet)
-    p.SetAllJointsActuationType(parsers.ChParserURDF.ActuationType_POSITION)
+    # FORCE, not POSITION. A position-actuated joint is a CONSTRAINT: the solver
+    # holds the commanded angle exactly, so pulling on a leg cannot move it --
+    # a soft spring does nothing at all, and a stiff one only destabilises the
+    # solver until the robot is flung across the scene. Neither is a robustness
+    # test. Torque actuation with a PD law underneath is compliant: the leg gives
+    # when you pull, and the controller pulls it back when you let go, which is
+    # the thing this demo exists to show.
+    p.SetAllJointsActuationType(parsers.ChParserURDF.ActuationType_FORCE)
     p.SetRootInitPose(chrono.ChFramed(chrono.ChVector3d(0, 0, 0.36), chrono.QUNIT))
     p.PopulateSystem(system)
 
@@ -505,11 +569,18 @@ def scene_go2(system):
     # the point of the demo is that something is actively holding a pose while a
     # human pulls on it, not which controller is doing the holding.
     STANCE = {"hip": 0.0, "thigh": 0.9, "calf": -1.8}
+    holders = []
     for leg in ("FL", "FR", "RL", "RR"):
         for joint, angle in STANCE.items():
             m = p.GetChMotor(f"{leg}_{joint}_joint")
+            # GetChMotor hands back the ChLinkMotor base, which only carries
+            # Set/GetMotorFunction; the angle readings live on the rotation type.
+            m = chrono.CastToChLinkMotorRotationTorque(m) if m else None
             if m:
-                m.SetMotorFunction(chrono.ChFunctionConst(angle))
+                fn = chrono.ChFunctionConst(0.0)
+                m.SetMotorFunction(fn)          # for a torque motor this IS the torque
+                holders.append(StanceHolder(m, fn, angle))
+    system.stance_holders = holders     # the loop ticks these every step
     grabbable = [b for b in system.GetBodies()
                  if any(k in b.GetName() for k in ("calf", "thigh", "foot", "base"))]
     base = [b for b in system.GetBodies() if b.GetName() == "base"][0]
@@ -836,6 +907,8 @@ def main(mode, headless_script=None, use_udp=False):
             vis.UpdateCamera(chrono.ChVector3d(look.x + d * math.sin(cam_az[0]),
                                                look.y - d * math.cos(cam_az[0]),
                                                look.z + cam_h[0]), look)
+            if grabber is not None:
+                grabber.draw_link()
             vis.BeginScene(); vis.Render(); vis.EndScene()
             if console is not None:
                 b = grabbable[sel]
@@ -853,6 +926,8 @@ def main(mode, headless_script=None, use_udp=False):
                 elif n % (render_every * 10) == 0:
                     console.send(f"{t:.3f},{bp.x:.3f},{f:.3f},{bp.z:.3f},{s:.3f},{th:.3f},{br:.3f},"
                                  f"{'HELD' if held else b.GetName()[:8]}")
+        for h in getattr(system, "stance_holders", ()):
+            h.update()
         system.DoStepDynamics(STEP)
         n += 1
 
