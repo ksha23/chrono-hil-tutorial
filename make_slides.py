@@ -472,7 +472,7 @@ def build(check_only=False):
         # Rough line budget: a 20pt bullet wraps at about 78 characters in the
         # content placeholder, and the slide holds roughly 13 such lines above
         # the note. Shrink rather than overflow.
-        est = sum(1 + len(it[0] if isinstance(it, tuple) else it) // 78
+        est = sum(1 + len(it[0] if isinstance(it, tuple) else it) // 72
                   for it in items)
         while size > 13 and est > (13 if not note else 11) * (20.0 / size):
             size -= 1
@@ -486,6 +486,14 @@ def build(check_only=False):
                 rich(par, text, size - 2 * lvl)
             else:
                 rich(par, item, size)
+        if shots:
+            # Put the figure under the text, not on top of it. Text starts at
+            # 1.44 in; a line costs size*1.25 pt plus the paragraph gap.
+            text_bottom = 1.44 + est * (size * 1.25) / 72.0 + len(items) * gap / 72.0
+            top = max(3.05, text_bottom + 0.22)
+            room = ((7.05 - note_height(note) - 0.18) if note else 7.00) - top
+            if room > 0.9:
+                place_shots(s, shots, top=top, height=min(2.55, room))
         if note:
             note_box(s, note, 6.05)
         finish(s)
@@ -538,25 +546,17 @@ def build(check_only=False):
         finish(s)
         return s
 
-    def showtime(lines, note=None, shots=None):
-        s = new(CONTENT)
-        title_of(s, "Demo Time")
-        body = None
-        for ph in s.placeholders:
-            if ph.placeholder_format.idx != 0:
-                body = ph
-                break
-        tf = body.text_frame
-        tf.word_wrap = True
-        for i, ln in enumerate(lines):
-            par = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            par.space_after = Pt(10)
-            rich(par, ln, 20)
-        place_shots(s, shots)
-        if note:
-            note_box(s, note, 6.05)
-        finish(s)
-        return s
+    def showtime(name, what, why, lines, note=None, shots=None):
+        """A demo slide that says what it is and why anyone should care.
+
+        "Demo Time" on its own tells an audience nothing, and a demo nobody has
+        been given a reason to watch is a pause in the talk. Delegates to
+        bullets so it inherits the same shrink-to-fit and the same figure
+        placement, which is below the text rather than through it.
+        """
+        return bullets(f"Demo Time: {name}",
+                       [f"`WHAT`  {what}", f"`WHY`   {why}"] + list(lines),
+                       note=note, shots=shots)
 
     # =========================================================================
     # 1. Title
@@ -571,6 +571,34 @@ def build(check_only=False):
             p.text = "Simulation-Based Engineering Lab"
             break
     finish(s)
+
+    bullets("What this talk covers",
+            ["1.  `What counts as human-in-the-loop`, and what it demands of a "
+             "simulator. A definition we will hold every demo against.",
+             "2.  `The clock.` Why pacing comes first, and the levers Chrono gives "
+             "you for buying enough slack to pace at all.",
+             "3.  `Getting a person's input into the state.` The driver surface, the "
+             "input devices Chrono already speaks, and what to do about the ones it "
+             "does not.",
+             "4.  `Reaching into the scene.` Picking a body, pulling on it, and a "
+             "one-line gap in PyChrono that this talk closes.",
+             "Four demos along the way, and the code is all in one repository you "
+             "can clone."],
+            note=["The order is deliberate. The clock comes before the input, "
+                  "because input into a simulation that cannot hold real time is "
+                  "not human-in-the-loop, whatever else it is."])
+
+    bullets("The four demos",
+            ["1.  `Does the clock matter.` The same drive twice, paced and unpaced.",
+             "2.  `A person driving.` Keyboard into a vehicle, the textbook case.",
+             "3.  `Reaching in.` Drag a quadruped's leg while its controller "
+             "resists, and a Franka arm with the motors on or off.",
+             "4.  `How hard can you shove it.` A measured impulse at a point you "
+             "choose, and the magnitude where recovery stops."],
+            shots=["demo_go2.png", "demo_arm.png", "demo_push.png"],
+            note=["Two of them are a person inside the loop, one is a person "
+                  "setting up an experiment and watching, and the first one has no "
+                  "human in it at all. That distinction is the next slide."])
 
     # =========================================================================
     # 2-6. What we mean by it
@@ -592,19 +620,32 @@ def build(check_only=False):
                   "point of the tutorial: a car, a crane, a gearbox and a "
                   "quadruped's leg all satisfy it, and they satisfy it the same way."])
 
-    bullets("Why a person at all",
-            ["A gantry crane. Four bodies, two speed motors, one distance "
-             "constraint. No vehicle, no terrain, no tires.",
-             "The payload hangs free and NOTHING damps the swing but the operator.",
-             ("accelerate hard and the load swings", 1),
-             ("it keeps swinging until someone drives the trolley back under it", 1),
-             "`status()` reports the swing angle, so the console scores how badly "
-             "you are doing without your having to watch the window."],
-            shots=["crane_swing.png"],
-            note=["No controller in this tutorial can land that load, which is the "
-                  "cleanest answer to 'why not just automate it'. It also settles "
-                  "the generality question early: if the pattern reaches a crane, "
-                  "it is not a Chrono::Vehicle feature."])
+    bullets("What a person in the loop is for",
+            ["Two reasons, and they are different jobs:",
+             "`The person is the SUBJECT.` You are measuring the human. What does "
+             "an operator do when the controls are delayed?",
+             "`The person is the CONTROLLER.` No controller you have can do the "
+             "task, so a human closes the loop.",
+             "Either way the simulator has to hold wall-clock time, or you are "
+             "measuring the simulator instead of the person."],
+            shots=["hil_rig.png"],
+            note=["The first reason is why pacing is not a detail. A human-factors "
+                  "result taken from a simulation running at 0.6x real time is a "
+                  "result about a slow simulation."])
+
+    bullets("A study Chrono has already carried",
+            ["Remote car-following under latency. Forty participants, four groups "
+             "of ten. Uplink delayed their inputs, downlink delayed the video back.",
+             "`Chrono::Vehicle` ego and lead dynamics, `SynChrono` between the two "
+             "nodes, `Chrono::Sensor` for the forward camera on three monitors at "
+             "60 Hz, `Chrono::HIL` for a Logitech G29 wheel and pedals.",
+             "Mitigation cut driving incidents 72%, though not significantly, and "
+             "significantly lowered steering entropy at high speed. Adaptation "
+             "across the three latency trials dominated the effect."],
+            shots=["remote_driving_study.png"],
+            note=["Ma, McDonald, Sha, Zhang, Xu, Negrut. \"Evaluating a "
+                  "delay-compensated shared-control system in high- and low-speed "
+                  "remote car-following.\""])
 
     # -- the loop diagram ----------------------------------------------------
     s = new(TITLE_ONLY)
@@ -680,7 +721,11 @@ def build(check_only=False):
                "the sim to catch up after a stall, pace against TOTAL elapsed time "
                "instead, which is the third mode in this tutorial."])
 
-    showtime(['`REALTIME = "none"`: watch the drift column run away',
+    showtime("does the clock actually matter",
+             "the same scripted drive twice, once pacing to wall clock and once not",
+             "it turns the real-time requirement from an assertion into a column "
+             "you can watch run away",
+             ['`REALTIME = "none"`: watch the drift column run away',
               '`REALTIME = "vehicle"`: drift pinned near zero, RTF at 1',
               "Same physics in both runs. The only difference is whether the "
               "process sleeps."],
@@ -813,7 +858,9 @@ def build(check_only=False):
              "Four configs ship in `data/vehicle/joystick/`: Default, Logitech "
              "RumblePad 2, Xbox One, and Wheel+Pedals+Shifters",
              "Each control names its own DEVICE, so a wheel, a pedal box and an "
-             "H-shifter enumerating as three separate USB devices all map at once"],
+             "H-shifter enumerating as three separate USB devices all map at once",
+             "Not hypothetical: the remote-driving study on slide 5 ran on a "
+             "Logitech G29 wheel and pedal set through this path"],
             note=["So a G923-class rig is a config file, not a port. The mapping and "
                   "the semantics are Chrono's and cross-platform; enumerating the "
                   "device is delegated to the windowing layer, so which platforms "
@@ -835,7 +882,11 @@ def build(check_only=False):
                   "so a second machine can drive the simulation and watch telemetry "
                   "come back."])
 
-    showtime(["`INPUT_SOURCE = \"keyboard\"`, `KEYBOARD_MODE = \"held\"`",
+    showtime("a person driving the vehicle",
+             "keyboard straight into ChInteractiveDriver, HMMWV on rigid terrain",
+             "the whole definition satisfied in one window, and the baseline every "
+             "other demo is measured against",
+             ["`INPUT_SOURCE = \"keyboard\"`, `KEYBOARD_MODE = \"held\"`",
               "W/A/S/D drive. The arrow keys are the chase camera, not the car.",
               "Try `\"cumulative\"` and feel the difference a key-state API makes."],
              shots=["hmmwv.png"],
@@ -934,7 +985,11 @@ def build(check_only=False):
                f"0.154 kg Go2 calf gave a 2.7 kg Panda link `{N['panda_k']}`, which "
                f"is `{N['panda_accel']}`: through the floor in a single step."])
 
-    showtime(["Drag a leg while the stance controller fights back",
+    showtime("reaching in and pulling on a robot",
+             "click a link and drag it while its controller tries to hold position",
+             "human input as a FORCE rather than as driver inputs, which is how "
+             "everything that is not a vehicle gets a person in its loop",
+             ["Drag a leg while the stance controller fights back",
               "Drag a Franka link, hand-guided or fully unactuated",
               f"Yanking a link into the floor: `{N['yank_before']}` before the "
               f"gains were bounded, `{N['yank_after']}` after"],
@@ -961,7 +1016,12 @@ def build(check_only=False):
                "up the experiment and reads the verdict, and is deliberately not in "
                "the inner loop, because being in it would destroy repeatability."])
 
-    showtime([f"Forward at the base COM: `{N['push_fwd_ok']}` recovers, "
+    showtime("how hard can you shove it",
+             "click where the push lands, set direction and magnitude, fire a "
+             "measured impulse, watch the controller recover or fail",
+             "robustness testing that produces a NUMBER, so the result can go in a "
+             "report and somebody else can reproduce it",
+             [f"Forward at the base COM: `{N['push_fwd_ok']}` recovers, "
               f"`{N['push_fwd_fail']}` does not",
               f"Sideways: `{N['push_lat_ok']}` recovers, `{N['push_lat_fail']}` does not",
               "Same impulse, applied 5 cm higher up the torso: the verdict flips"],
@@ -973,18 +1033,6 @@ def build(check_only=False):
     # =========================================================================
     # 28-30. Close
     # =========================================================================
-    bullets("How far this goes",
-            ["`PART 6`  -  change gear. A gear is not a fourth float: it belongs to "
-             "the transmission, and the human sets it through a different API.",
-             "`PART 7`  -  drive somewhere real. `SCENE = \"mcity\"` puts the car in "
-             "the Mcity digital twin.",
-             "`PART 8`  -  control something that is not a car. `PLANT = \"rover\"` "
-             "or `\"crane\"`, same three floats, no vehicle class involved.",
-             "`PARTS 9-10`  -  reach into the scene: drag a limb, push a robot, "
-             "place a scene."],
-            note=["The through-line: the loop never changed. What changed was "
-                  "where the human's numbers were injected."])
-
     bullets("Where to go next",
             ["This tutorial   `github.com/ksha23/chrono-hil-tutorial`",
              ("every part, the demos, and the SWIG director patch under "
