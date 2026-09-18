@@ -54,12 +54,23 @@
 # =============================================================================
 
 import math
-import os
 import socket
-import sys
 import time
 
-import pychrono as chrono
+import os
+import sys
+
+try:
+    import pychrono as chrono
+except ImportError as exc:
+    if "symbol not found" in str(exc) and os.environ.get("DYLD_LIBRARY_PATH"):
+        sys.exit(
+            "PyChrono failed to load because DYLD_LIBRARY_PATH points somewhere\n"
+            "with an older libChrono, so its symbols win over the conda ones:\n"
+            f"  DYLD_LIBRARY_PATH={os.environ['DYLD_LIBRARY_PATH']}\n\n"
+            "  unset DYLD_LIBRARY_PATH && python " + " ".join(sys.argv) + "\n\n"
+            f"(original error: {exc})")
+    raise
 import pychrono.irrlicht as irr
 
 UDP_PORT = 9870
@@ -376,22 +387,25 @@ class Grabber:
         The plane contains the surface normal and faces the camera as squarely as
         it can, which is the orientation that makes the first drag feel natural.
         """
-        n = surf_n
-        ln = n.Length()
-        n = n / ln if ln > 1e-9 else chrono.ChVector3d(0, 0, 1)
-        # At angle 0 the plane should face the camera as squarely as it can while
-        # still containing the surface normal, so take the component of the view
-        # direction perpendicular to n. (Using n x cam_fwd instead leaves the
-        # plane edge-on to the camera, and the cursor ray never meets it.)
-        dot_fn = cam_fwd.x * n.x + cam_fwd.y * n.y + cam_fwd.z * n.z
-        base = cam_fwd - n * dot_fn
-        if base.Length() < 1e-6:
-            base = n.Cross(chrono.ChVector3d(0, 0, 1))
-        if base.Length() < 1e-6:
-            base = n.Cross(chrono.ChVector3d(1, 0, 0))
-        base = base / base.Length()
-        # rotate that about the surface normal: base and n x base are orthonormal
-        pn = base * math.cos(angle) + n.Cross(base) * math.sin(angle)
+        # Start SCREEN-PARALLEL: plane normal = view direction. That is the best
+        # conditioned plane there is (the cursor ray meets it head on) and it does
+        # the obvious thing -- the body tracks the cursor across the view.
+        #
+        # Genesis orients its plane off the surface normal instead. That is lovely
+        # for sliding along a face, but it degenerates when the surface you picked
+        # happens to face the camera: the plane then contains the view direction,
+        # a pixel of mouse movement slides the intersection metres along the view
+        # axis, and the held body rockets at the viewer. Which is what the orange
+        # handle "growing" was.
+        f = cam_fwd
+        lf = f.Length()
+        f = f / lf if lf > 1e-9 else chrono.ChVector3d(0, 1, 0)
+        # tilt axis: horizontal on screen, so left/right drags become depth
+        axis = f.Cross(chrono.ChVector3d(0, 0, 1))
+        if axis.Length() < 1e-6:
+            axis = f.Cross(chrono.ChVector3d(1, 0, 0))
+        axis = axis / axis.Length()
+        pn = f * math.cos(angle) + axis * math.sin(angle)
         pn = pn / pn.Length()
         self.plane_n = pn
         self.plane_d = -(pn.x * point.x + pn.y * point.y + pn.z * point.z)
