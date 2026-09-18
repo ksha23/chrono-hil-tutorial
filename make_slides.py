@@ -430,29 +430,29 @@ def arrow(slide, x, y, w, h, shape=MSO_SHAPE.RIGHT_ARROW, fill=None):
 def build(check_only=False):
     # ---- every quote, resolved from the source as it stands right now -------
     E = {}
-    E["report"] = excerpt("tutorial_HIL_driver.py",
+    E["report"] = excerpt("demos/driver/tutorial_HIL_driver.py",
                           "# Console report: how far is the sim from wall time?",
                           "rtf = (d_wall / d_sim) if d_sim > 0 else 0.0")
-    E["rt_setup"] = excerpt("tutorial_HIL_driver.py",
+    E["rt_setup"] = excerpt("demos/driver/tutorial_HIL_driver.py",
                             "# Real-time setup (PART 1)",
                             "cum_timer = CumulativeRealtimeTimer()")
-    E["rt_spin"] = excerpt("tutorial_HIL_driver.py",
+    E["rt_spin"] = excerpt("demos/driver/tutorial_HIL_driver.py",
                            "# PART 1: spin in place for real time to catch up",
                            "cum_timer.spin(system.GetChTime())")
-    E["kbd_call"] = excerpt("tutorial_HIL_driver.py",
+    E["kbd_call"] = excerpt("demos/driver/tutorial_HIL_driver.py",
                             'if KEYBOARD_MODE == "held":',
                             "driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)")
-    E["keyboard"] = excerpt("tutorial_HIL_driver.py",
+    E["keyboard"] = excerpt("demos/driver/tutorial_HIL_driver.py",
                             'elif INPUT_SOURCE == "keyboard":',
                             "driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)")
-    E["crane"] = excerpt("hil_plants.py",
+    E["crane"] = excerpt("demos/driver/hil_plants.py",
                          "        # Throttle drives forward, braking drives back",
                          "self.cross_speed.SetSetpoint(inputs.m_steering * self.MAX_CROSS_SPEED, t)")
-    E["pick"] = excerpt("hil_manipulate.py", "def pick_along_ray(system, start, end):",
+    E["pick"] = excerpt("chronohil/picking.py", "def pick_along_ray(system, start, end):",
                         "chrono.ChVector3d(nrm.x, nrm.y, nrm.z))")
-    E["spring"] = excerpt("hil_manipulate.py", "omega = getattr(self.system,",
+    E["spring"] = excerpt("chronohil/picking.py", "omega = getattr(self.system,",
                           "self.system.AddLink(self.spring)")
-    E["push"] = excerpt("hil_push.py", "def fire(self, cfg, t):",
+    E["push"] = excerpt("demos/push/rig.py", "def fire(self, cfg, t):",
                         "body.AccumulateForce(idx, force,", extra=1)
     E["native"] = excerpt("experimental/native_pick.py", "class MouseReceiver",
                           "elif ev.MouseInput.Event == irr.EMIE_LMOUSE_LEFT_UP:", extra=1)
@@ -809,7 +809,7 @@ def build(check_only=False):
                "//         sys.DoStepDynamics(step)",
                "//         if time to draw: render()",
                "//         timer.Spin(step)           # give the wall clock its due"],
-              named(E["rt_spin"], "tutorial_HIL_driver.py"),
+              named(E["rt_spin"], "demos/driver/tutorial_HIL_driver.py"),
               ["Two calls. Everything else about real time is arithmetic around them.",
                "Per-step timers never recover time lost on a slow step. If you need "
                "the sim to catch up after a stall, pace against TOTAL elapsed time "
@@ -933,7 +933,7 @@ def build(check_only=False):
                "//   subclass ChDriver and write the setters from your own device, or",
                "//   take ChInteractiveDriver and let it read a keyboard or a joystick.",
                "// Either way the vehicle only ever sees a DriverInputs struct."],
-              named(E["kbd_call"], "tutorial_HIL_driver.py"),
+              named(E["kbd_call"], "demos/driver/tutorial_HIL_driver.py"),
               ["Note WHERE this lives: `ChDriver` and `ChInteractiveDriver` are in "
                "Chrono::VEHICLE, not in core. Vehicles are what this lab does most, "
                "so vehicles are what got a first-class human-input class, a keyboard "
@@ -963,7 +963,7 @@ def build(check_only=False):
                "self.long_motor = chrono.ChLinkMotorLinearSpeed()",
                "self.long_speed = chrono.ChFunctionSetpoint()",
                "self.long_motor.SetSpeedFunction(self.long_speed)"],
-              named(E["crane"], "hil_plants.py"),
+              named(E["crane"], "demos/driver/hil_plants.py"),
               ["`ChFunctionSetpoint` is the piece worth knowing. A Chrono motor is "
                "driven by a `ChFunction` of time, and a human's input is not a "
                "function of time anyone can write down in advance. The setpoint "
@@ -1060,7 +1060,7 @@ def build(check_only=False):
                "// A ray sees COLLISION geometry, never visual geometry. A link you",
                "// can see but whose collision is off is invisible to every click.",
                "// That one sentence accounted for every 'it will not pick' bug here."],
-              named(E["pick"], "hil_manipulate.py"),
+              named(E["pick"], "chronohil/picking.py"),
               ["Exposed in PyChrono already, and exact: the same primitive a native "
                "mouse handler would call. Screen pixel to ray is your arithmetic; "
                "ray to body is Chrono's."])
@@ -1080,7 +1080,7 @@ def build(check_only=False):
                "spring->SetSpringCoefficient(k);   // k = m*w^2   scale with the MASS",
                "spring->SetDampingCoefficient(c);  // c = 2*m*w    critically damped",
                "sys.AddLink(spring);"],
-              named(E["spring"], "hil_manipulate.py"),
+              named(E["spring"], "chronohil/picking.py"),
               ["Chrono never clears an accumulator for you, and `AddAccumulator()` "
                "appends, so calling it per push leaks a slot and every stale slot "
                "keeps contributing.",
@@ -1144,7 +1144,7 @@ def build(check_only=False):
                "# no two drags are the same: the force depends on how fast a hand",
                "# moved and how long a button was held. There is no number at the end.",
                "# Script the magnitude and you get one you can put in a report."],
-              named(E["push"], "hil_push.py"),
+              named(E["push"], "demos/push/rig.py"),
               ["This is the human-ON-the-loop half of the taxonomy: the person sets "
                "up the experiment and reads the verdict, and is deliberately not in "
                "the inner loop, because being in it would destroy repeatability."])

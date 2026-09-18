@@ -17,16 +17,16 @@ conda's libChrono and PyChrono fails to import with a missing-symbol error.
 
 | # | demo | command | what you do |
 |---|---|---|---|
-| 1 | Does the clock matter | `python tutorial_HIL_driver.py` | set `REALTIME = "none"`, watch the drift column run away, then set it back |
-| 2 | A person driving | `python tutorial_HIL_driver.py` | `INPUT_SOURCE = "keyboard"`; W/A/S/D drive, arrows are the camera |
-| 3 | Reaching in | `python hil_manipulate.py go2` | click and drag a leg; the locomotion policy steps to keep its feet |
-| 3b | | `python hil_manipulate.py arm` | drag a Franka link; `arm-limp` for motors off |
-| 4 | How hard can you shove it | `python hil_push.py` | click where the push lands, set direction and magnitude, SPACE fires |
+| 1 | Does the clock matter | `python demos/driver/tutorial_HIL_driver.py` | set `REALTIME = "none"`, watch the drift column run away, then set it back |
+| 2 | A person driving | `python demos/driver/tutorial_HIL_driver.py` | `INPUT_SOURCE = "keyboard"`; W/A/S/D drive, arrows are the camera |
+| 3 | Reaching in | `python demos/manipulate/main.py go2` | drag a leg; the locomotion policy steps to keep its feet |
+| 3b | | `python demos/manipulate/main.py arm` | drag a Franka link; `arm-limp` for motors off |
+| 4 | How hard can you shove it | `python demos/push/main.py` | click where the push lands, set direction and magnitude, SPACE fires |
 
 Demo 4 without a human, which is how the numbers in the talk were produced:
 
 ```bash
-python hil_push.py --headless --sweep 1700:1950:50 --dir 1,0,0 --fresh
+python demos/push/main.py --headless --sweep 1700:1950:50 --dir 1,0,0 --fresh
 ```
 
 Every script takes `--help`. The switches for demos 1 and 2 live in the
@@ -36,12 +36,14 @@ Every script takes `--help`. The switches for demos 1 and 2 live in the
 
 | path | |
 |---|---|
-| `tutorial_HIL_driver.py` | demos 1 and 2, and Parts 1 to 8. Imports `hil_scene`, `hil_gearbox`, `hil_plants` |
-| `hil_manipulate.py` | demo 3: picking and dragging, the Go2 policy, the Franka |
-| `hil_push.py` | demo 4: the push rig and its panel |
+| `demos/driver/` | demos 1 and 2, and the vehicle parts |
+| `demos/manipulate/` | demo 3: picking and dragging |
+| `demos/push/` | demo 4: the push rig and its panel |
+| `chronohil/` | everything the demos are assembled from. Portable |
+| `chronohil/input/window/` | reading the 3D window. `native.py` is the portable way and needs one line in Chrono; `macos.py` is the fallback until that lands |
 | `make_slides.py` | builds the deck; `--pdf` exports it too |
-| `experimental/` | the one-line SWIG change that would let PyChrono read its own window |
-| `archive/` | earlier demos, not presented: the placement tool and the UDP console |
+| `experimental/` | the one-line SWIG change, and what it buys |
+| `archive/` | earlier demos, not presented |
 | `ASSETS.md` | where the vendored robot meshes and the policy came from |
 
 ## Setup

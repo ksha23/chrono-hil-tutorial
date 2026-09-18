@@ -108,8 +108,10 @@ import pychrono.irrlicht as irr
 # PART 9 already owns the awkward parts: reading the OS mouse and keyboard,
 # turning a pixel into a world ray, and raycasting the collision system.  None of
 # that is reimplemented here.
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-import hil_manipulate as H
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import chronohil as H
+import chronohil.scenes as _scenes
+from chronohil.input.window import open_window_input
 
 STEP = 2e-3
 RENDER_FPS = 50
@@ -136,14 +138,14 @@ TAG0 = 1000           # placeable bodies get tags TAG0, TAG0+1, ...; see build_s
 
 # -----------------------------------------------------------------------------
 # Camera maths.  world_to_pixel is the exact inverse of the ray that
-# H.DirectInput.ray_through builds, so the two cannot drift apart.
+# open_window_input.ray_through builds, so the two cannot drift apart.
 # -----------------------------------------------------------------------------
 def camera_basis(vis):
     """(eye, forward, right, up, tan(fov/2), aspect) from the Irrlicht node.
 
     vis.GetCameraPosition() reports (0,0,0) for a camera made with AddCamera, so
     the node is the only honest source.  `right` and `up` are built exactly the
-    way H.DirectInput.ray_through builds them; a render-to-file check against
+    way open_window_input.ray_through builds them; a render-to-file check against
     Irrlicht's own output puts a projected point within ~1 px of where it lands.
     """
     cam = vis.GetActiveCamera()
@@ -203,12 +205,12 @@ def ray_plane_z(origin, far, z):
 class RayCaster:
     """The pixel-to-ray maths from PART 9, with no OS input attached.
 
-    H.DirectInput.ray_through only needs .vis, .cw and .ch, so borrowing the
+    open_window_input.ray_through only needs .vis, .cw and .ch, so borrowing the
     function itself is exact reuse: the interactive path and the headless test
     path run the identical code, which is the point.
     """
 
-    ray_through = H.DirectInput.ray_through
+    ray_through = open_window_input.ray_through
 
     def __init__(self, vis, width=WIN_W, height=WIN_H):
         self.vis, self.cw, self.ch = vis, width, height
@@ -382,7 +384,7 @@ def dump_layout(items, path, t=None):
 # from a table, so the headless tests exercise the real loop and not a copy.
 # -----------------------------------------------------------------------------
 class ScriptedInput:
-    """Same duck type as H.DirectInput, driven by functions of sim time."""
+    """Same duck type as open_window_input, driven by functions of sim time."""
 
     def __init__(self, script):
         self.script = script
@@ -541,7 +543,7 @@ def main(headless_script=None, use_panel=True, out_path=None):
         console = ScriptedInput(headless_script)
     else:
         try:
-            console = H.DirectInput(vis, title, WIN_W, WIN_H)
+            console = open_window_input(vis, title, WIN_W, WIN_H)
         except Exception as exc:
             sys.exit(f"[input] OS mouse/keys unavailable ({exc}).\n"
                      "        hil_place needs them: it is a mouse tool.")

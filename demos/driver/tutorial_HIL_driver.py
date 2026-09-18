@@ -65,18 +65,11 @@ if "-h" in sys.argv or "--help" in sys.argv:
           "  and PLANT (\"rover\", \"crane\").")
     raise SystemExit(0)
 
-try:
-    import pychrono as chrono
-except ImportError as exc:
-    if "symbol not found" in str(exc) and os.environ.get("DYLD_LIBRARY_PATH"):
-        sys.exit(
-            "PyChrono failed to load because DYLD_LIBRARY_PATH points somewhere\n"
-            "with an older libChrono, so its symbols win over the conda ones:\n"
-            f"  DYLD_LIBRARY_PATH={os.environ['DYLD_LIBRARY_PATH']}\n\n"
-            "  unset DYLD_LIBRARY_PATH && python " + " ".join(sys.argv) + "\n\n"
-            f"(original error: {exc})")
-    raise
-import pychrono.vehicle as veh
+# The loader-path trap, and its message, live in one place for every demo.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__)))))
+from chronohil.chrono_env import chrono
+
 import pychrono.irrlicht as irr
 
 import hil_gearbox
