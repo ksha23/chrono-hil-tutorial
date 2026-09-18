@@ -194,7 +194,9 @@ class DirectInput:
     K = {"left": 123, "right": 124, "down": 125, "up": 126,
          "z": 6, "x": 7, "c": 8, "t": 17, "lbracket": 33, "rbracket": 30,
          # camera, deliberately on keys so the mouse stays free for grabbing
-         "a": 0, "d": 2, "w": 13, "s": 1, "r": 15, "f": 3}
+         "a": 0, "d": 2, "w": 13, "s": 1, "r": 15, "f": 3,
+         # rotate the drag plane -> this is the depth control
+         "q": 12, "e": 14}
     EDGE = {"z": "f", "x": "n", "c": "r", "t": "m", "rbracket": "u", "lbracket": "d"}
 
     def __init__(self, vis, title, content_w, content_h):
@@ -296,6 +298,10 @@ class DirectInput:
         c, self.commands = self.commands, []
         return c
 
+    def plane_spin(self):
+        """(-1/0/+1) from Q/E: rotate the drag plane about the surface normal."""
+        return (-1.0 if self._key("q") else 0.0) + (1.0 if self._key("e") else 0.0)
+
     def camera_nudge(self):
         """(orbit, zoom, rise) from A/D, W/S, R/F -- held, not edge-triggered."""
         return ((-1.0 if self._key("a") else 0.0) + (1.0 if self._key("d") else 0.0),
@@ -318,8 +324,9 @@ def pick_along_ray(system, start, end):
     body = chrono.CastToChBody(res.hitModel.GetContactable())
     if body is None:
         return None
-    p = res.abs_hitPoint
-    return body, chrono.ChVector3d(p.x, p.y, p.z)
+    p, nrm = res.abs_hitPoint, res.abs_hitNormal
+    return (body, chrono.ChVector3d(p.x, p.y, p.z),
+            chrono.ChVector3d(nrm.x, nrm.y, nrm.z))
 
 
 def pick_at_crosshair(system, vis, reach=50.0):
@@ -352,6 +359,55 @@ class Grabber:
         system.AddBody(self.handle)
         self.spring = None
         self.body = None
+        self.plane_n = None
+        self.plane_d = 0.0
+
+    def set_plane(self, point, surf_n, cam_fwd, angle):
+        """A plane through the grab point that the cursor ray is intersected with.
+
+        Dragging at a fixed distance from the camera confines the handle to a
+        sphere, so a leg can be swung across the view but never pulled toward or
+        away from it -- which is why only some parts of a robot feel reachable.
+        Genesis solves it by dragging in a PLANE and letting the scroll wheel
+        rotate that plane about the surface normal; rotating it is what converts
+        sideways mouse motion into depth. Same idea here, on two keys.
+
+        The plane contains the surface normal and faces the camera as squarely as
+        it can, which is the orientation that makes the first drag feel natural.
+        """
+        n = surf_n
+        ln = n.Length()
+        n = n / ln if ln > 1e-9 else chrono.ChVector3d(0, 0, 1)
+        # At angle 0 the plane should face the camera as squarely as it can while
+        # still containing the surface normal, so take the component of the view
+        # direction perpendicular to n. (Using n x cam_fwd instead leaves the
+        # plane edge-on to the camera, and the cursor ray never meets it.)
+        dot_fn = cam_fwd.x * n.x + cam_fwd.y * n.y + cam_fwd.z * n.z
+        base = cam_fwd - n * dot_fn
+        if base.Length() < 1e-6:
+            base = n.Cross(chrono.ChVector3d(0, 0, 1))
+        if base.Length() < 1e-6:
+            base = n.Cross(chrono.ChVector3d(1, 0, 0))
+        base = base / base.Length()
+        # rotate that about the surface normal: base and n x base are orthonormal
+        pn = base * math.cos(angle) + n.Cross(base) * math.sin(angle)
+        pn = pn / pn.Length()
+        self.plane_n = pn
+        self.plane_d = -(pn.x * point.x + pn.y * point.y + pn.z * point.z)
+
+    def plane_point(self, origin, direction):
+        """Where a cursor ray meets the drag plane, or None if it is parallel."""
+        if self.plane_n is None:
+            return None
+        denom = (self.plane_n.x * direction.x + self.plane_n.y * direction.y
+                 + self.plane_n.z * direction.z)
+        if abs(denom) < 1e-6:
+            return None
+        t = -((self.plane_n.x * origin.x + self.plane_n.y * origin.y
+               + self.plane_n.z * origin.z) + self.plane_d) / denom
+        if t <= 0:
+            return None
+        return origin + direction * t
 
     def grab(self, body, point):
         self.release()
@@ -600,13 +656,16 @@ def main(mode, headless_script=None, use_udp=False):
     sel = 0
     held = False
     lift = 0.0          # ] / [ toggle the handle moving up / down in Z
-    drag_depth = 1.0
+    plane_angle = 0.0
+    grab_point = None
+    grab_normal = None
     seen_packet = False
     system.DoStepDynamics(STEP)          # the collision system must exist to raycast
 
     print(f"\n{hint}")
     print("  MOUSE on the 3D view: press to grab, drag to pull, release to drop\n"
           "  arrows move   [ ] up/down   Z grab   X select   T log   C reset\n"
+          "  Q/E while dragging: rotate the drag plane - this is the depth control\n"
           "  camera (mouse is not used for it): A/D orbit   W/S zoom   R/F height\n")
 
     render_every = max(1, int(round(1.0 / (RENDER_FPS * STEP))))
@@ -675,19 +734,38 @@ def main(mode, headless_script=None, use_udp=False):
                 if r:
                     got = pick_along_ray(system, r[0], r[1])
                     if got:
-                        body, point = got
-                        if body not in (grabber.handle,):
+                        body, point, normal = got
+                        if body is not grabber.handle:
                             grabber.grab(body, point)
                             held = True
-                            _c = console.vis.GetActiveCamera().getAbsolutePosition()
-                            drag_depth = (point - chrono.ChVector3d(_c.X, _c.Y, _c.Z)).Length()
+                            plane_angle = 0.0
+                            fwd = r[1] - r[0]
+                            fwd = fwd / fwd.Length()
+                            grabber.set_plane(point, normal, fwd, plane_angle)
+                            grab_normal = normal
+                            grab_point = point
                             print(f"[mouse] grabbed {body.GetName()}")
             elif down and held and at is not None:
+                spin = console.plane_spin()
+                if spin:
+                    # Past about 70 degrees the plane turns edge-on to the camera
+                    # and the cursor ray stops meeting it, which reads as the drag
+                    # dying. Genesis just skips those frames; clamping short of it
+                    # keeps every rotation usable.
+                    plane_angle = max(-1.2, min(1.2,
+                        plane_angle + spin * 1.5 * STEP * render_every))
+                    cf = console.vis.GetActiveCamera()
+                    cp, ct = cf.getAbsolutePosition(), cf.getTarget()
+                    fwd = chrono.ChVector3d(ct.X - cp.X, ct.Y - cp.Y, ct.Z - cp.Z)
+                    fwd = fwd / fwd.Length()
+                    grabber.set_plane(grab_point, grab_normal, fwd, plane_angle)
                 r = console.ray_through(*at)
                 if r:
                     d = (r[1] - r[0])
                     d = d / d.Length()
-                    grabber.handle.SetPos(r[0] + d * drag_depth)
+                    target = grabber.plane_point(r[0], d)
+                    if target is not None:
+                        grabber.handle.SetPos(target)
             elif (not down) and console.prev_mouse and held:
                 grabber.release(); held = False
                 print("[mouse] released")

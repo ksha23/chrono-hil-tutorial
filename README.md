@@ -337,7 +337,16 @@ the view. Its input receiver is switched off, and the camera is on keys instead:
 | mouse drag | grab and pull a body |
 | arrows, `[` `]` | move the grab handle (X/Y, then Z) |
 | `Z` `X` `C` `T` | grab/release, cycle selection, reset, log pose |
+| `Q` `E` *while dragging* | rotate the drag plane -- the depth control |
 | `A` `D` / `W` `S` / `R` `F` | camera orbit / zoom / height |
+
+Dragging at a fixed distance from the camera confines the handle to a sphere, so
+a leg can be swung across the view but never pulled toward or away from it --
+which is why only some parts of a robot feel reachable. The cursor ray is instead
+intersected with a **drag plane** through the grab point, one that contains the
+surface normal and faces the camera as squarely as it can. `Q`/`E` rotate that
+plane about the surface normal, which is what turns sideways mouse motion into
+depth. Genesis puts the same rotation on the scroll wheel.
 
 PyChrono genuinely cannot read that window: SWIG directors are off so
 `irr::IEventReceiver` cannot be subclassed, and `getCursorControl()` and
