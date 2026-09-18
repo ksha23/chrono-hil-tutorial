@@ -66,8 +66,9 @@ UDP_PORT = 9870
 STEP = 2e-3
 RENDER_FPS = 50
 HANDLE_SPEED = 1.2        # m/s at full stick
-SPRING_K = 4000.0
-SPRING_C = 120.0
+GRAB_OMEGA = 18.0      # rad/s: how fast a grabbed body converges on the cursor
+GRAB_ZETA = 1.0        # critically damped
+GRAB_REACH = 3.0       # m: furthest the handle may sit from the held point
 
 
 # -----------------------------------------------------------------------------
@@ -413,11 +414,20 @@ class Grabber:
         self.release()
         self.body = body
         self.handle.SetPos(point)
+        # Gains have to scale with what is being pulled. A fixed stiffness that
+        # feels right on a 134 kg ball is a catapult on a 0.154 kg Go2 calf:
+        # sqrt(4000/0.154) is 161 rad/s, which a 2 ms step cannot integrate, and
+        # the robot leaves the scene. Genesis sidesteps this by building its
+        # impulse from the link's own mass and inertia; the same idea here, as a
+        # critically damped spring with a fixed time constant.
+        m = max(body.GetMass(), 1e-3)
+        k = m * GRAB_OMEGA * GRAB_OMEGA
+        c = 2.0 * m * GRAB_OMEGA * GRAB_ZETA
         self.spring = chrono.ChLinkTSDA()
         self.spring.Initialize(self.handle, body, False, point, point)
         self.spring.SetRestLength(0.0)
-        self.spring.SetSpringCoefficient(SPRING_K)
-        self.spring.SetDampingCoefficient(SPRING_C)
+        self.spring.SetSpringCoefficient(k)
+        self.spring.SetDampingCoefficient(c)
         self.system.AddLink(self.spring)
 
     def release(self):
@@ -752,19 +762,30 @@ def main(mode, headless_script=None, use_udp=False):
                     # and the cursor ray stops meeting it, which reads as the drag
                     # dying. Genesis just skips those frames; clamping short of it
                     # keeps every rotation usable.
-                    plane_angle = max(-1.2, min(1.2,
-                        plane_angle + spin * 1.5 * STEP * render_every))
+                    # NB: this block runs every physics step, not every render
+                    # frame, so the rate is per STEP. Scaling it by render_every
+                    # as well made it 10x too fast, and Q/E just slammed into the
+                    # clamp -- which reads exactly like the key doing nothing.
+                    plane_angle = max(-1.2, min(1.2, plane_angle + spin * 1.5 * STEP))
                     cf = console.vis.GetActiveCamera()
                     cp, ct = cf.getAbsolutePosition(), cf.getTarget()
                     fwd = chrono.ChVector3d(ct.X - cp.X, ct.Y - cp.Y, ct.Z - cp.Z)
                     fwd = fwd / fwd.Length()
-                    grabber.set_plane(grab_point, grab_normal, fwd, plane_angle)
+                    grabber.set_plane(grabber.body.GetPos(), grab_normal, fwd, plane_angle)
                 r = console.ray_through(*at)
                 if r:
                     d = (r[1] - r[0])
                     d = d / d.Length()
                     target = grabber.plane_point(r[0], d)
                     if target is not None:
+                        # A near-parallel plane puts the intersection a very long
+                        # way off; letting the handle jump there stretches the
+                        # spring into a launch.
+                        here = grabber.body.GetPos()
+                        off = target - here
+                        far = off.Length()
+                        if far > GRAB_REACH:
+                            target = here + off * (GRAB_REACH / far)
                         grabber.handle.SetPos(target)
             elif (not down) and console.prev_mouse and held:
                 grabber.release(); held = False
