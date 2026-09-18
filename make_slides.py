@@ -41,6 +41,7 @@
 
 import argparse
 import os
+import re
 import sys
 
 from pptx import Presentation
@@ -57,6 +58,9 @@ IMAGES = os.path.join(HERE, "images")
 CODE_BG = RGBColor(0x00, 0x00, 0x00)
 CODE_FG = RGBColor(0xCC, 0xCC, 0xCC)
 CODE_COMMENT = RGBColor(0x7F, 0xAF, 0x7F)   # comments recede, code stays legible
+CODE_TYPE = RGBColor(0xF0, 0xA0, 0x40)     # Chrono types, in the Chrono orange
+CODE_CALL = RGBColor(0x7F, 0xC7, 0xE8)     # the calls, which are the point of the slide
+CODE_STR = RGBColor(0xD8, 0xA0, 0xC0)
 BOX_FILL = RGBColor(0x1F, 0x38, 0x64)
 BOX_LINE = RGBColor(0x0B, 0x1E, 0x3F)
 BOX_TEXT = RGBColor(0xFF, 0xFF, 0xFF)
@@ -240,6 +244,61 @@ def note_box(slide, lines, top, size=16, height=None):
     return tb
 
 
+# A line of code on a slide is mostly punctuation and plumbing. What the
+# audience is meant to read is the type names and the calls, so those get the
+# colour and everything else gets out of the way.
+_TOKENS = re.compile(r"""
+      (?P<str>\"[^\"]*\"|\'[^\']*\')
+    | (?P<type>\bCh[A-Z][A-Za-z0-9_]*)
+    | (?P<call>\b[A-Za-z_][A-Za-z0-9_]*(?=\s*\())
+""", re.VERBOSE)
+
+
+def _comment_split(line):
+    """Split a line into (code, comment), ignoring markers inside strings."""
+    quote = None
+    i = 0
+    while i < len(line):
+        c = line[i]
+        if quote:
+            if c == quote:
+                quote = None
+        elif c in "\"'":
+            quote = c
+        elif c == "#":
+            return line[:i], line[i:]
+        elif c == "/" and line[i:i + 2] == "//":
+            return line[:i], line[i:]
+        i += 1
+    return line, ""
+
+
+def _emit(par, text, colour, size):
+    if not text:
+        return
+    r = par.add_run()
+    r.text = text
+    r.font.name = "Consolas"
+    r.font.size = Pt(size)
+    r.font.color.rgb = colour
+
+
+def code_line(par, line, size):
+    """Write one line as coloured runs."""
+    code, comment = _comment_split(line)
+    pos = 0
+    for m in _TOKENS.finditer(code):
+        _emit(par, code[pos:m.start()], CODE_FG, size)
+        kind = m.lastgroup
+        _emit(par, m.group(),
+              {"str": CODE_STR, "type": CODE_TYPE, "call": CODE_CALL}[kind], size)
+        pos = m.end()
+    _emit(par, code[pos:], CODE_FG, size)
+    _emit(par, comment, CODE_COMMENT, size)
+    if not line:
+        _emit(par, " ", CODE_FG, size)
+
+
 def code_box(slide, code, top, height, size=10):
     tb = slide.shapes.add_textbox(Inches(0.0), Inches(top), Inches(13.33), Inches(height))
     tb.name = "CodeBox"
@@ -252,12 +311,7 @@ def code_box(slide, code, top, height, size=10):
     for i, ln in enumerate(code.split("\n")):
         par = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         par.space_after = Pt(0)
-        r = par.add_run()
-        r.text = ln if ln else " "
-        r.font.name = "Consolas"
-        r.font.size = Pt(size)
-        stripped = ln.strip()
-        r.font.color.rgb = CODE_COMMENT if stripped.startswith("#") else CODE_FG
+        code_line(par, ln, size)
     return tb
 
 
@@ -446,9 +500,9 @@ def build(check_only=False):
         avail = 7.05 - top - note_h - 0.15
         # Shrink to fit rather than overflow: a slide that runs off the bottom
         # is worse than a slide in 8pt.
-        while size > 7 and nlines * (size + 1.2) / 72.0 > avail:
+        while size > 7 and nlines * (size * 1.25) / 72.0 > avail:
             size -= 1
-        height = min(avail, nlines * (size + 1.2) / 72.0 + 0.34)
+        height = min(avail, nlines * (size * 1.25) / 72.0 + 0.30)
         code_box(s, joined, top, height, size)
         note_box(s, note, top + height + 0.12)
         finish(s)
@@ -476,9 +530,9 @@ def build(check_only=False):
         top = 1.32
         note_h = note_height(note)
         avail = 7.05 - top - note_h - 0.15
-        while size > 7 and nlines * (size + 1.2) / 72.0 > avail:
+        while size > 7 and nlines * (size * 1.25) / 72.0 > avail:
             size -= 1
-        height = min(avail, nlines * (size + 1.2) / 72.0 + 0.34)
+        height = min(avail, nlines * (size * 1.25) / 72.0 + 0.30)
         code_box(s, joined, top, height, size)
         note_box(s, note, top + height + 0.12)
         finish(s)
@@ -486,7 +540,7 @@ def build(check_only=False):
 
     def showtime(lines, note=None, shots=None):
         s = new(CONTENT)
-        title_of(s, "Show Time")
+        title_of(s, "Demo Time")
         body = None
         for ph in s.placeholders:
             if ph.placeholder_format.idx != 0:
@@ -690,22 +744,6 @@ def build(check_only=False):
               ["Every one of these is a real-time decision before it is a fidelity "
                "decision, and most of them are one line."])
 
-    bullets("Two that do not look like performance problems",
-            ["`Under-resolved friction reads as a frictionless floor.` A solver that "
-             "runs out of iterations before the tangential constraints converge does "
-             "not report an error: the thing just slides, and you go hunting through "
-             "friction coefficients instead of iteration counts.",
-             "`Imported collision geometry is authored for a different question.` A "
-             "planner's mesh answers 'do these two overlap', once. A dynamics loop "
-             "asks every step, for every pair, and the file does not know which job "
-             "it is doing.",
-             "Switching one quadruped's URDF triangle meshes to convex hulls, and "
-             "masking self-collision, took it from `427 contacts` standing still to "
-             "`6`, and from slower than real time to roughly fifteen times faster."],
-            note=["Both of these cost days somewhere. They are worth naming out "
-                  "loud because neither presents as a speed problem, and the "
-                  "instinct in both cases sends you somewhere useless."])
-
     # =========================================================================
     # 14-20. A path into the state
     # =========================================================================
@@ -726,10 +764,12 @@ def build(check_only=False):
     label(s, 0.50, 4.45, 3.90, "IN the loop", 15, color=ACCENT)
     label(s, 4.72, 4.45, 3.90, "IN the loop", 15, color=ACCENT)
     label(s, 8.94, 4.45, 3.90, "not in the loop", 15)
-    note_box(s, ["The middle column is the general one. A vehicle has a driver "
-                 "class because somebody wrote one; every other plant in this "
-                 "tutorial takes its human input as a force, which is why the "
-                 "same pattern reaches a crane, a gearbox and a quadruped.",
+    note_box(s, ["The left column is the privileged one, and it is privileged for "
+                 "a reason: vehicles are this lab's bread and butter, so they are "
+                 "what got a purpose-built human-input class. That machinery lives "
+                 "in Chrono::Vehicle, so a crane or a robot cannot reach it.",
+                 "The middle column is the general one, and it is how everything "
+                 "that is not a vehicle gets a person into its loop.",
                  "The right-hand column is honest about itself: nothing reacts "
                  "to a pose you set, so nothing closes the loop."], 5.15)
     finish(s)
@@ -751,7 +791,11 @@ def build(check_only=False):
                "//   take ChInteractiveDriver and let it read a keyboard or a joystick.",
                "// Either way the vehicle only ever sees a DriverInputs struct."],
               named(E["kbd_call"], "tutorial_HIL_driver.py"),
-              ["Query the driver BEFORE `Synchronize`: the human's numbers have to "
+              ["Note WHERE this lives: `ChDriver` and `ChInteractiveDriver` are in "
+               "Chrono::VEHICLE, not in core. Vehicles are what this lab does most, "
+               "so vehicles are what got a first-class human-input class, a keyboard "
+               "mode, and a joystick mapping. Nothing else in Chrono has one.",
+               "Query the driver BEFORE `Synchronize`: the human's numbers have to "
                "be in hand before the modules read each other for this step.",
                "`KeyboardMode`: `CUMULATIVE` nudges an input and leaves it there; "
                "`HELD` follows the keys currently down, like a driving game. HELD "
@@ -941,25 +985,20 @@ def build(check_only=False):
             note=["The through-line: the loop never changed. What changed was "
                   "where the human's numbers were injected."])
 
-    bullets("Where this goes next",
-            ["`Chrono::HIL` (github.com/zzhou292/chrono-HIL)  -  driving rigs, "
-             "steering wheels, multi-user sessions, the same three floats",
-             "The SWIG director change, as an upstream PR",
-             "A mouse pick-and-drag utility, so that every PyChrono user does not "
-             "write the same 56 lines",
-             "Policy in the loop: a learned controller on one side, a person "
-             "perturbing it on the other"],
-            note=["The gap this talk found is small and specific, which is the "
-                  "good kind: one line to receive the event, and a utility on "
-                  "top of primitives Chrono already has."])
-
-    s = new(SECTION)
-    s.shapes.title.text_frame.text = "Any questions?"
-    for ph in s.placeholders:
-        if ph.placeholder_format.idx != 0:
-            ph.text_frame.text = FOOTER
-            break
-    finish(s)
+    bullets("Where to go next",
+            ["This tutorial   `github.com/ksha23/chrono-hil-tutorial`",
+             ("every part, the demos, and the SWIG director patch under "
+              "`experimental/`", 1),
+             "Chrono   `projectchrono.org`   `github.com/projectchrono/chrono`",
+             ("`conda install -c projectchrono pychrono`", 1),
+             "Chrono::HIL   `github.com/zzhou292/chrono-HIL`",
+             ("driving rigs, steering wheels, multi-user sessions, the same three "
+              "floats", 1),
+             "Joystick and wheel mappings   `data/vehicle/joystick/`",
+             ("copy the nearest config, change the axis and button numbers", 1)],
+            note=["The gap this talk found is small and specific, which is the good "
+                  "kind: one line to let Python receive the event, and a utility on "
+                  "top of primitives Chrono already exposes. Upstream PR to follow."])
 
     s = new(layout(prs, "Blank"))
     tb = s.shapes.add_textbox(Inches(1.2), Inches(2.9), Inches(10.9), Inches(1.6))
