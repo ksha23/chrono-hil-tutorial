@@ -31,11 +31,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 
 import pychrono.irrlicht as irr
 
-from chronohil import (FreeDriveJoint, Grabber, GRAB_REACH, HANDLE_SPEED,
+from chronohil import (FreeDriveJoint, GRAB_REACH, HANDLE_SPEED,
                        LimpJoint, RENDER_FPS, STEP, StanceHolder, chrono,
                        pick_along_ray, pick_at_crosshair, pick_near_ray,
                        require_window, scene_arm, scene_go2, scene_place)
 from chronohil.input import Console, LocalInput, open_window_input
+from demos.manipulate.dragging import Manipulator
 import chronohil.scenes as scenes
 
 SCENES = {
@@ -46,7 +47,7 @@ SCENES = {
 }
 
 
-def main(mode, headless_script=None, use_udp=False):
+def main(mode, headless_script=None, use_udp=False, console=None):
     system = chrono.ChSystemNSC()
     system.SetGravitationalAcceleration(chrono.ChVector3d(0, 0, -9.81))
     system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
@@ -64,7 +65,7 @@ def main(mode, headless_script=None, use_udp=False):
     cam_t = [ap.x, ap.y, ap.z]
     cam_az, cam_r, cam_h = [0.55], [1.75], [chase * 0.8]   # orbit, distance, height
     kinematic = (mode == "place")
-    grabber = None if kinematic else Grabber(system)
+    drag = Manipulator(system, grabbable, kinematic)
 
     title = f"PART 9: {mode} - reach into the scene"
     vis = irr.ChVisualSystemIrrlicht()
@@ -94,7 +95,9 @@ def main(mode, headless_script=None, use_udp=False):
     # immediately once its input receiver is off.
     vis.GetActiveCamera().setInputReceiverEnabled(False)
 
-    if headless_script is not None:
+    if console is not None:
+        pass            # injected, so the press/drag path can be driven by a test
+    elif headless_script is not None:
         console = None
     elif use_udp:
         console = Console()
@@ -103,7 +106,6 @@ def main(mode, headless_script=None, use_udp=False):
         # not an error: the local input window covers every platform.
         console = open_window_input(vis, title, 1280, 800) or LocalInput()
     sel = 0
-    held = False
     lift = 0.0          # ] / [ toggle the handle moving up / down in Z
     plane_angle = 0.0
     grab_point = None
@@ -160,11 +162,11 @@ def main(mode, headless_script=None, use_udp=False):
             elif c == "f":
                 if kinematic:
                     pass
-                elif held:
-                    grabber.release(); held = False; print("[release]")
+                elif drag.held:
+                    drag.release(); print("[release]")
                 else:
                     body = grabbable[sel]
-                    grabber.grab(body, body.GetPos()); held = True
+                    drag.toggle(body)
                     print(f"[grab] {body.GetName()}")
             elif c == "m":
                 b = grabbable[sel]
@@ -188,84 +190,11 @@ def main(mode, headless_script=None, use_udp=False):
                 print("[quit]")
                 break_out = True
             elif c == "r":
-                if not kinematic and held:
-                    grabber.release(); held = False
+                if not kinematic and drag.held:
+                    drag.release()
                 print("[reset]")
 
-        # Mouse straight on the 3D window: press to pick what is under the
-        # cursor, drag to pull it, release to let go.
-        if console is not None and hasattr(console, 'ray_through') and not kinematic:
-            down = console.mouse_down()
-            at = console.cursor_pixel()
-            if down and not console.prev_mouse and at is not None:
-                r = console.ray_through(*at)
-                if r:
-                    got = pick_along_ray(system, r[0], r[1])
-                    if got and got[0] not in grabbable:
-                        # A real ray hit on something that cannot be dragged.
-                        # Say so for the arm base: it is the one part of the
-                        # robot a user will click and get nothing from, and
-                        # silence there reads as "the click was ignored" rather
-                        # than "that piece is bolted to the table". Grabbing it
-                        # anyway would be worse -- a fixed body has no degrees of
-                        # freedom, so the spring would pull on nothing.
-                        if got[0].IsFixed() and got[0].GetName().startswith("panda"):
-                            print(f"[mouse] {got[0].GetName()} is bolted down")
-                        got = None       # hit the floor or something unpickable
-                    if got is None:
-                        d0 = r[1] - r[0]
-                        got = pick_near_ray(grabbable, r[0], d0 / d0.Length())
-                    if got:
-                        body, point, normal = got
-                        # `is` compares Python proxies, and CastToChBody mints a
-                        # fresh one per call, so it never matched and this guard
-                        # did nothing. SWIG's __eq__ compares the C++ pointer.
-                        if grabber.handle is None or body != grabber.handle:
-                            grabber.grab(body, point)
-                            held = True
-                            plane_angle = 0.0
-                            fwd = r[1] - r[0]
-                            fwd = fwd / fwd.Length()
-                            grabber.set_plane(point, normal, fwd, plane_angle)
-                            grab_normal = normal
-                            grab_point = point
-                            print(f"[mouse] grabbed {body.GetName()}")
-            elif down and held and at is not None:
-                spin = console.plane_spin()
-                if spin:
-                    # Past about 70 degrees the plane turns edge-on to the camera
-                    # and the cursor ray stops meeting it, which reads as the drag
-                    # dying. Genesis just skips those frames; clamping short of it
-                    # keeps every rotation usable.
-                    # NB: this block runs every physics step, not every render
-                    # frame, so the rate is per STEP. Scaling it by render_every
-                    # as well made it 10x too fast, and Q/E just slammed into the
-                    # clamp -- which reads exactly like the key doing nothing.
-                    plane_angle = max(-1.2, min(1.2, plane_angle + spin * 1.5 * STEP))
-                    cf = console.vis.GetActiveCamera()
-                    cp, ct = cf.getAbsolutePosition(), cf.getTarget()
-                    fwd = chrono.ChVector3d(ct.X - cp.X, ct.Y - cp.Y, ct.Z - cp.Z)
-                    fwd = fwd / fwd.Length()
-                    grabber.set_plane(grabber.body.GetPos(), grab_normal, fwd, plane_angle)
-                r = console.ray_through(*at)
-                if r:
-                    d = (r[1] - r[0])
-                    d = d / d.Length()
-                    target = grabber.plane_point(r[0], d)
-                    if target is not None:
-                        # A near-parallel plane puts the intersection a very long
-                        # way off; letting the handle jump there stretches the
-                        # spring into a launch.
-                        here = grabber.body.GetPos()
-                        off = target - here
-                        far = off.Length()
-                        if far > GRAB_REACH:
-                            target = here + off * (GRAB_REACH / far)
-                        grabber.handle.SetPos(target)
-            elif (not down) and console.prev_mouse and held:
-                grabber.release(); held = False
-                print("[mouse] released")
-            console.prev_mouse = down
+        drag.mouse_update(console)
 
         dx = (th - br) * HANDLE_SPEED * STEP
         dy = s * HANDLE_SPEED * STEP
@@ -274,8 +203,9 @@ def main(mode, headless_script=None, use_udp=False):
             b = grabbable[sel]
             p = b.GetPos()
             b.SetPos(chrono.ChVector3d(p.x + dx, p.y + dy, p.z + dz))
-        elif held and not (console is not None and hasattr(console, 'ray_through') and console.prev_mouse):
-            grabber.move(dx, dy, dz)
+        elif drag.held and not (console is not None and hasattr(console, 'ray_through')
+                                and console.prev_mouse):
+            drag.move(dx, dy, dz)
 
         if n % render_every == 0:
             # Keep the selected body in frame; there is no user camera control,
@@ -297,26 +227,26 @@ def main(mode, headless_script=None, use_udp=False):
             vis.UpdateCamera(chrono.ChVector3d(look.x + d * math.sin(cam_az[0]),
                                                look.y - d * math.cos(cam_az[0]),
                                                look.z + cam_h[0]), look)
-            if grabber is not None:
-                grabber.draw_link()
+            if not kinematic:
+                drag.draw_link()
             vis.BeginScene(); vis.Render(); vis.EndScene()
             if console is not None:
                 b = grabbable[sel]
                 bp = b.GetPos()
-                f = grabber.force() if (grabber and held) else 0.0
+                f = drag.force()
                 if isinstance(console, LocalInput):
                     console.draw([
                         f"mode   {mode}      t {t:6.2f} s",
                         f"sel    {b.GetName()}",
-                        f"state  {'HELD  spring %.0f N' % f if held else ('kinematic' if kinematic else 'not grabbed - press Z')}",
+                        f"state  {'HELD  spring %.0f N' % f if drag.held else ('kinematic' if kinematic else 'not grabbed - press Z')}",
                         f"pos    x {bp.x:+7.3f}  y {bp.y:+7.3f}  z {bp.z:+7.3f}",
                         f"in     steer {s:+.2f}  thr {th:.2f}  brk {br:.2f}  lift {lift:+.0f}",
                         "arrows move   [ ] up/down   Z grab   X select   T log   C reset",
                     ])
                 elif n % (render_every * 10) == 0:
                     console.send(f"{t:.3f},{bp.x:.3f},{f:.3f},{bp.z:.3f},{s:.3f},{th:.3f},{br:.3f},"
-                                 f"{'HELD' if held else b.GetName()[:8]}")
-        FreeDriveJoint.guiding = held
+                                 f"{'HELD' if drag.held else b.GetName()[:8]}")
+        FreeDriveJoint.guiding = drag.held
         for h in getattr(system, "stance_holders", ()):
             h.update()
         system.DoStepDynamics(STEP)
