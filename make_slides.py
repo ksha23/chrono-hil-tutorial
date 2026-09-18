@@ -155,6 +155,11 @@ def excerpt(path, start, end=None, extra=0, strip_blank=True):
     return "\n".join(block), lo + 1, hi + 1
 
 
+def named(spec, path):
+    """Attach a file name to an excerpt so a slide can say where it came from."""
+    return (spec[0], spec[1], spec[2], path)
+
+
 def cite(*specs):
     """Render 'Lines 12 to 40' / 'Lines 12 to 40, 71 to 88' for a slide title."""
     parts = []
@@ -210,8 +215,20 @@ def rich(par, text, base_size=16):
             r.font.name = "Consolas"
 
 
+def note_height(lines, size=16):
+    """How tall a note really is once it wraps.
+
+    Counting logical lines under-reserves: one long sentence becomes two or
+    three lines on the slide, and the last one lands on the footer. At 16pt the
+    note box fits roughly 105 characters per line.
+    """
+    per = max(40, int(105 * 16.0 / size))
+    rows = sum(1 + max(0, (len(ln.replace("`", "")) - 1)) // per for ln in lines)
+    return 0.30 * rows + 0.18
+
+
 def note_box(slide, lines, top, size=16, height=None):
-    h = height if height is not None else 0.34 * len(lines) + 0.2
+    h = height if height is not None else note_height(lines, size)
     tb = slide.shapes.add_textbox(Inches(0.44), Inches(top), Inches(12.46), Inches(h))
     tb.name = "NoteBox"
     tf = tb.text_frame
@@ -293,6 +310,30 @@ def label(slide, x, y, w, text, size=14, align=PP_ALIGN.CENTER, color=None):
     return tb
 
 
+def place_shots(slide, shots, top=3.15, height=2.55):
+    """A centred row of screenshots in the space the bullets do not use.
+
+    Scaled to a common height so a wide top-down shot and a tall arm shot do not
+    fight each other for the same band of slide.
+    """
+    if not shots:
+        return
+    paths = [os.path.join(IMAGES, f) for f in shots]
+    paths = [q for q in paths if os.path.exists(q)]
+    if not paths:
+        return
+    from PIL import Image as _Im
+    widths = []
+    for q in paths:
+        iw, ih = _Im.open(q).size
+        widths.append(height * iw / float(ih))
+    gap = 0.30
+    x = (13.33 - (sum(widths) + gap * (len(widths) - 1))) / 2.0
+    for q, w in zip(paths, widths):
+        slide.shapes.add_picture(q, Inches(x), Inches(top), Inches(w), Inches(height))
+        x += w + gap
+
+
 def arrow(slide, x, y, w, h, shape=MSO_SHAPE.RIGHT_ARROW, fill=None):
     sh = slide.shapes.add_shape(shape, Inches(x), Inches(y), Inches(w), Inches(h))
     sh.fill.solid()
@@ -316,11 +357,12 @@ def build(check_only=False):
     E["rt_spin"] = excerpt("tutorial_HIL_driver.py",
                            "# PART 1: spin in place for real time to catch up",
                            "cum_timer.spin(system.GetChTime())")
+    E["kbd_call"] = excerpt("tutorial_HIL_driver.py",
+                            'if KEYBOARD_MODE == "held":',
+                            "driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)")
     E["keyboard"] = excerpt("tutorial_HIL_driver.py",
                             'elif INPUT_SOURCE == "keyboard":',
                             "driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)")
-    E["udp"] = excerpt("tutorial_HIL_driver.py", "class UdpInput:",
-                       "self.sock.setblocking(False)")
     E["pick"] = excerpt("hil_manipulate.py", "def pick_along_ray(system, start, end):",
                         "chrono.ChVector3d(nrm.x, nrm.y, nrm.z))")
     E["spring"] = excerpt("hil_manipulate.py", "omega = getattr(self.system,",
@@ -363,7 +405,7 @@ def build(check_only=False):
         finish(s)
         return s
 
-    def bullets(head, items, note=None, size=20):
+    def bullets(head, items, note=None, size=20, shots=None):
         s = new(CONTENT)
         title_of(s, head)
         body = None
@@ -373,9 +415,17 @@ def build(check_only=False):
                 break
         tf = body.text_frame
         tf.word_wrap = True
+        # Rough line budget: a 20pt bullet wraps at about 78 characters in the
+        # content placeholder, and the slide holds roughly 13 such lines above
+        # the note. Shrink rather than overflow.
+        est = sum(1 + len(it[0] if isinstance(it, tuple) else it) // 78
+                  for it in items)
+        while size > 13 and est > (13 if not note else 11) * (20.0 / size):
+            size -= 1
+        gap = 9 if size >= 18 else 5
         for i, item in enumerate(items):
             par = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            par.space_after = Pt(9)
+            par.space_after = Pt(gap)
             if isinstance(item, tuple):
                 text, lvl = item
                 par.level = lvl
@@ -392,13 +442,43 @@ def build(check_only=False):
         title_of(s, f"{head} ({cite(*specs)})")
         joined = "\n\n".join(sp[0] for sp in specs)
         nlines = len(joined.split("\n"))
-        note_h = 0.34 * len(note) + 0.2
-        avail = 7.10 - top - note_h - 0.15
+        note_h = note_height(note)
+        avail = 7.05 - top - note_h - 0.15
         # Shrink to fit rather than overflow: a slide that runs off the bottom
         # is worse than a slide in 8pt.
         while size > 7 and nlines * (size + 1.2) / 72.0 > avail:
             size -= 1
-        height = min(avail, nlines * (size + 1.2) / 72.0 + 0.22)
+        height = min(avail, nlines * (size + 1.2) / 72.0 + 0.34)
+        code_box(s, joined, top, height, size)
+        note_box(s, note, top + height + 0.12)
+        finish(s)
+        return s
+
+    def api_slide(head, api_lines, call_spec, note, size=11):
+        """The interface first, the call site second.
+
+        A slide that quotes only this tutorial teaches this tutorial. What an
+        audience can actually carry home is the API surface -- the handful of
+        calls that exist whatever you are simulating -- so that goes on top,
+        copied from the Chrono header. The excerpt underneath is there to prove
+        the surface is really used, not to be studied.
+        """
+        s = new(TITLE_ONLY)
+        body = list(api_lines)
+        if call_spec is not None:
+            body += ["", f"# ---- and how this tutorial calls it "
+                         f"({call_spec[3]}, lines {call_spec[1]} to {call_spec[2]}) "
+                         + "-" * 6]
+            body += call_spec[0].split("\n")
+        title_of(s, head)
+        joined = "\n".join(body)
+        nlines = len(body)
+        top = 1.32
+        note_h = note_height(note)
+        avail = 7.05 - top - note_h - 0.15
+        while size > 7 and nlines * (size + 1.2) / 72.0 > avail:
+            size -= 1
+        height = min(avail, nlines * (size + 1.2) / 72.0 + 0.34)
         code_box(s, joined, top, height, size)
         note_box(s, note, top + height + 0.12)
         finish(s)
@@ -418,26 +498,7 @@ def build(check_only=False):
             par = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
             par.space_after = Pt(10)
             rich(par, ln, 20)
-        if shots:
-            # A row of screenshots in the space the bullets do not use. Scaled to
-            # a common height so a wide top-down shot and a tall arm shot do not
-            # fight each other.
-            paths = [os.path.join(IMAGES, f) for f in shots]
-            paths = [q for q in paths if os.path.exists(q)]
-            if paths:
-                from PIL import Image as _Im
-                H_IN = 2.55
-                widths = []
-                for q in paths:
-                    iw, ih = _Im.open(q).size
-                    widths.append(H_IN * iw / float(ih))
-                gap = 0.30
-                total = sum(widths) + gap * (len(widths) - 1)
-                x = (13.33 - total) / 2.0
-                for q, w in zip(paths, widths):
-                    s.shapes.add_picture(q, Inches(x), Inches(3.15),
-                                         Inches(w), Inches(H_IN))
-                    x += w + gap
+        place_shots(s, shots)
         if note:
             note_box(s, note, 6.05)
         finish(s)
@@ -476,6 +537,20 @@ def build(check_only=False):
             note=["Nothing in that definition mentions vehicles. That is the whole "
                   "point of the tutorial: a car, a crane, a gearbox and a "
                   "quadruped's leg all satisfy it, and they satisfy it the same way."])
+
+    bullets("Why a person at all",
+            ["A gantry crane. Four bodies, two speed motors, one distance "
+             "constraint. No vehicle, no terrain, no tires.",
+             "The payload hangs free and NOTHING damps the swing but the operator.",
+             ("accelerate hard and the load swings", 1),
+             ("it keeps swinging until someone drives the trolley back under it", 1),
+             "`status()` reports the swing angle, so the console scores how badly "
+             "you are doing without your having to watch the window."],
+            shots=["crane_swing.png"],
+            note=["No controller in this tutorial can land that load, which is the "
+                  "cleanest answer to 'why not just automate it'. It also settles "
+                  "the generality question early: if the pattern reaches a crane, "
+                  "it is not a Chrono::Vehicle feature."])
 
     # -- the loop diagram ----------------------------------------------------
     s = new(TITLE_ONLY)
@@ -524,18 +599,32 @@ def build(check_only=False):
              "So holding the clock is two separate problems:",
              ("do not run FAST  -  sleep off the slack (easy, one call)", 1),
              ("do not run SLOW  -  make the step cheap enough to have slack (the real work)", 1)],
-            note=[f"Unpaced, a dragged box in the manipulation demo travelled "
+            note=[f"Unpaced, a box being dragged by hand travelled "
                   f"{N['unpaced_m']} m in one wall-clock second instead of "
-                  f"{N['paced_m']} m. The physics was right. The experience was useless."])
+                  f"{N['paced_m']} m. The physics was right both times. Only one of "
+                  f"them was usable by a person."])
 
-    code_slide("Measure it, then hold it",
-               [E["report"], E["rt_setup"], E["rt_spin"]],
-               ["`ChRealtimeStepTimer.Spin(step)` sleeps off whatever is left of the "
-                "step. `vehicle.EnableRealtime(True)` does the same thing from "
-                "inside `Advance()`.",
-                "Per-step timers never recover time lost on a slow step, so a "
-                "cumulative timer is offered too: it paces against total elapsed "
-                "time and can catch up."])
+    api_slide("Holding wall-clock time: the pacing surface",
+              ["// chrono/core/ChRealtimeStep.h",
+               "class ChRealtimeStepTimer : public ChTimer {",
+               "    void Spin(double step);    // sleep off whatever is left of `step`",
+               "};",
+               "",
+               "// chrono_vehicle/ChVehicle.h -- same policy, applied inside Advance()",
+               "void   ChVehicle::EnableRealtime(bool val);",
+               "double ChVehicle::GetRTF() const;   // wall / simulated, per step",
+               "",
+               "// The pattern, whatever is being simulated:",
+               "//     while running:",
+               "//         inputs = read_human()      # never blocking",
+               "//         sys.DoStepDynamics(step)",
+               "//         if time to draw: render()",
+               "//         timer.Spin(step)           # give the wall clock its due"],
+              named(E["rt_spin"], "tutorial_HIL_driver.py"),
+              ["Two calls. Everything else about real time is arithmetic around them.",
+               "Per-step timers never recover time lost on a slow step. If you need "
+               "the sim to catch up after a stall, pace against TOTAL elapsed time "
+               "instead, which is the third mode in this tutorial."])
 
     showtime(['`REALTIME = "none"`: watch the drift column run away',
               '`REALTIME = "vehicle"`: drift pinned near zero, RTF at 1',
@@ -545,41 +634,77 @@ def build(check_only=False):
                    "average while the sim has already lost a second of wall clock."])
 
     bullets("You can only sleep if you have slack",
-            ["Everything from here is about the second problem: making a step cheap.",
-             "The two that actually moved the number on these demos:",
-             ("contact  -  how much geometry the collision system is asked to resolve", 1),
-             ("the solver  -  how many iterations each step is allowed", 1),
-             "They pull against each other. Iterations buy stability and cost time; "
-             "cheaper geometry buys time and can cost fidelity.",
-             "The budget is fixed: one step of wall clock, minus what you want to "
-             "leave for rendering."],
-            note=["Both numbers on the next two slides came out of the same "
-                  "robot, a Unitree Go2 loaded from URDF, on a laptop."])
+            ["Holding the clock is two problems, and only one of them is a call:",
+             ("do not run FAST  -  sleep off the slack", 1),
+             ("do not run SLOW  -  make the step cheap enough to HAVE slack", 1),
+             "The budget is fixed: one step of wall clock, minus what you spend "
+             "drawing, minus what you leave as margin for a bad step.",
+             "What follows is the set of levers Chrono gives you for the second "
+             "problem, in rough order of how much they usually buy."],
+            note=["Reach for them in this order. People tend to start at the "
+                  "solver, which is near the bottom of the list and the easiest "
+                  "place to spend an afternoon for nothing."])
 
-    bullets("Where the time goes: contact",
-            [f"Triangle meshes straight from the URDF: `{N['contacts_before']} contacts` "
-             f"standing still, `RTF {N['rtf_before']}`  -  slower than real time, "
-             f"before any human touches it",
-             "The robot was resolving its own thighs against its own shins, every step.",
-             f"Convex hulls, plus the base link in its own collision family: "
-             f"`{N['contacts_after']} contacts`, `RTF {N['rtf_after']}`",
-             "Same robot, same controller, same step size. Roughly 15x the slack."],
-            note=["A URDF collision mesh is authored for a planner that asks "
-                  "'do these overlap'. A real-time dynamics loop asks it every "
-                  "step, for every pair. Those are different jobs and the file "
-                  "does not know which one you are doing."])
+    bullets("The levers, in rough order of payoff",
+            ["1.  `Step size`. Everything scales with steps per second. The largest "
+             "step that stays stable is the single biggest lever there is.",
+             "2.  `Collision geometry`. Primitives beat convex hulls beat triangle "
+             "meshes, by a lot. Most imported assets arrive as the slowest option.",
+             "3.  `Which pairs are tested at all`. Families and masks remove whole "
+             "classes of pair from the broadphase, including self-collision.",
+             "4.  `Active domains`. Let the expensive physics happen only where it "
+             "matters: deformable terrain near the wheels, fluid near the hull.",
+             "5.  `Solver type and iteration cap`. Iterations buy convergence and "
+             "cost time, and you pay out of the same step you wanted to sleep in.",
+             "6.  `Threads`, `sleeping bodies`, and `model reduction` for elastic "
+             "subassemblies.",
+             "7.  `Render less often than you step`. Drawing is not free, and the "
+             "eye does not need 500 Hz."],
+            note=["None of this is specific to having a human in the loop. It "
+                  "becomes urgent when there is one, because a batch job that runs "
+                  "at 0.6x real time is merely slow, and an interactive one is broken."])
 
-    bullets("Where the time goes: the solver",
-            [f"`{N['solver_before']}`: the robot slid across the floor as if "
-             f"friction were switched off.",
-             "It was not a friction bug. Friction was under-resolved: the solver "
-             "ran out of iterations before the tangential constraints converged.",
-             f"`{N['solver_after']}`: creep fell to `{N['creep_after']}`.",
-             "Iterations are the price of stability, and you pay for them out of "
-             "the same wall-clock step you wanted to sleep in."],
-            note=["This one is worth knowing because it does not look like a "
-                  "performance problem. It looks like wrong physics, and it "
-                  "sends you hunting through friction coefficients."])
+    api_slide("The levers, by name",
+              ["// the step, and how it is integrated",
+               "sys.DoStepDynamics(step);",
+               "sys.SetTimestepperType(ChTimestepper::Type::...);",
+               "",
+               "// the solver: type, and how long it is allowed to work",
+               "sys.SetSolverType(ChSolver::Type::BARZILAIBORWEIN);",
+               "sys.GetSolver()->AsIterative()->SetMaxIterations(n);",
+               "",
+               "// what the collision system is asked to do",
+               "model->SetFamily(i);  model->SetFamilyMask(mask);  // skip whole pairs",
+               "ChCollisionModel::SetDefaultSuggestedEnvelope(e);   // contact envelope",
+               "ChCollisionModel::SetDefaultSuggestedMargin(m);",
+               "",
+               "// where the expensive physics is allowed to happen",
+               "SCMTerrain::AddActiveDomain(body, ...);   // deform near the wheels only",
+               "ChFsiSystemSPH::SetActiveDomain(box);     // fluid where it matters only",
+               "",
+               "// spend less on what is not moving, or not detailed",
+               "sys.SetNumThreads(n_chrono, n_collision, n_eigen);  // three pools",
+               "sys.SetSleepingAllowed(true);             // bodies at rest drop out",
+               "ChModalAssembly::DoModalReduction(...);   // internal DOFs -> a few modes"],
+              None,
+              ["Every one of these is a real-time decision before it is a fidelity "
+               "decision, and most of them are one line."])
+
+    bullets("Two that do not look like performance problems",
+            ["`Under-resolved friction reads as a frictionless floor.` A solver that "
+             "runs out of iterations before the tangential constraints converge does "
+             "not report an error: the thing just slides, and you go hunting through "
+             "friction coefficients instead of iteration counts.",
+             "`Imported collision geometry is authored for a different question.` A "
+             "planner's mesh answers 'do these two overlap', once. A dynamics loop "
+             "asks every step, for every pair, and the file does not know which job "
+             "it is doing.",
+             "Switching one quadruped's URDF triangle meshes to convex hulls, and "
+             "masking self-collision, took it from `427 contacts` standing still to "
+             "`6`, and from slower than real time to roughly fifteen times faster."],
+            note=["Both of these cost days somewhere. They are worth naming out "
+                  "loud because neither presents as a speed problem, and the "
+                  "instinct in both cases sends you somewhere useless."])
 
     # =========================================================================
     # 14-20. A path into the state
@@ -609,13 +734,62 @@ def build(check_only=False):
                  "to a pose you set, so nothing closes the loop."], 5.15)
     finish(s)
 
-    code_slide("The keyboard, and what a keypress means",
-               [E["keyboard"]],
-               ["`CUMULATIVE` (the old default): a keypress NUDGES the input, and it "
-                "stays where you left it. Fine for a test script, strange under a hand.",
-                "`HELD`: the input follows the keys currently down, like a driving "
-                "game. That mode was added to Chrono for this tutorial and ships "
-                "in PyChrono 10.0.0 build 1187."])
+    api_slide("Feeding driver input: the ChDriver surface",
+              ["// chrono_vehicle/ChDriver.h -- what EVERY driver exposes, human or not",
+               "class ChDriver {",
+               "    void SetSteering(double s);   // -1 .. +1",
+               "    void SetThrottle(double t);   //  0 .. 1",
+               "    void SetBraking(double b);    //  0 .. 1",
+               "    void SetClutch(double c);     //  0 .. 1",
+               "    DriverInputs GetInputs() const;",
+               "    virtual void Synchronize(double time);  // read the world",
+               "    virtual void Advance(double step);      // advance own state",
+               "};",
+               "",
+               "// Two ways in, and the vehicle cannot tell them apart:",
+               "//   subclass ChDriver and write the setters from your own device, or",
+               "//   take ChInteractiveDriver and let it read a keyboard or a joystick.",
+               "// Either way the vehicle only ever sees a DriverInputs struct."],
+              named(E["kbd_call"], "tutorial_HIL_driver.py"),
+              ["Query the driver BEFORE `Synchronize`: the human's numbers have to "
+               "be in hand before the modules read each other for this step.",
+               "`KeyboardMode`: `CUMULATIVE` nudges an input and leaves it there; "
+               "`HELD` follows the keys currently down, like a driving game. HELD "
+               "was added to Chrono for this tutorial and ships in build 1187."])
+
+    bullets("Input devices Chrono already speaks",
+            ["`ChInteractiveDriver` covers two CLASSES of device, not two devices:",
+             ("`InputMode_KEYBOARD`  -  with `KeyboardMode_HELD` or `_CUMULATIVE`", 1),
+             ("`InputMode_JOYSTICK`  -  anything the windowing layer enumerates as one", 1),
+             "A joystick is mapped by a JSON file, not by code: "
+             "`SetJoystickConfigFile(path)`",
+             ("mapped axes: steering, throttle, brake, CLUTCH", 1),
+             ("mapped buttons: shift up/down, reverse, gears 1-9, manual-gearbox toggle, "
+              "plus one user callback", 1),
+             "Four configs ship in `data/vehicle/joystick/`: Default, Logitech "
+             "RumblePad 2, Xbox One, and Wheel+Pedals+Shifters",
+             "Each control names its own DEVICE, so a wheel, a pedal box and an "
+             "H-shifter enumerating as three separate USB devices all map at once"],
+            note=["So a G923-class rig is a config file, not a port. The mapping and "
+                  "the semantics are Chrono's and cross-platform; enumerating the "
+                  "device is delegated to the windowing layer, so which platforms "
+                  "see your wheel follows that layer, and I have not tested it here.",
+                  "All of it is exposed to PyChrono."])
+
+    bullets("And for a device Chrono does not know about",
+            ["Subclass `ChDriver`, read whatever you like, and obey three rules:",
+             "1.  `NEVER BLOCK.` A simulation that waits on a human is not "
+             "real-time. Late input means hold the last value, not stall the loop.",
+             "2.  `SAMPLE ONCE PER STEP, THEN HOLD.` Read at the top of the step "
+             "and reuse that value for the whole step, or the physics sees inputs "
+             "change for reasons the operator can neither perceive nor reproduce.",
+             "3.  `SEND SOMETHING BACK.` With no return path the operator is "
+             "driving open loop, which is not human-in-the-loop by our definition.",
+             "Obey those and the transport does not matter: a socket, a serial "
+             "port, shared memory, a ROS topic, another simulator."],
+            note=["This tutorial ships one of these, an operator console on UDP, "
+                  "so a second machine can drive the simulation and watch telemetry "
+                  "come back."])
 
     showtime(["`INPUT_SOURCE = \"keyboard\"`, `KEYBOARD_MODE = \"held\"`",
               "W/A/S/D drive. The arrow keys are the chase camera, not the car.",
@@ -624,39 +798,6 @@ def build(check_only=False):
              note=["This is the whole definition satisfied in one window: input "
                    "reaches the state, the state comes back on screen, and the "
                    "timer holds the pace."])
-
-    # -- UDP diagram ---------------------------------------------------------
-    s = new(TITLE_ONLY)
-    title_of(s, "A device Chrono does not know about")
-    box(s, 0.77, 2.84, 4.70, 1.59, "Operator machine", ["operator_console.py"])
-    box(s, 7.87, 2.84, 4.70, 1.59, "Simulation machine", ["tutorial_HIL_driver.py"])
-    arrow(s, 5.62, 2.95, 2.10, 0.38)
-    label(s, 5.47, 2.40, 2.40, "steering, throttle, braking, gear", 13)
-    arrow(s, 5.62, 3.90, 2.10, 0.38, MSO_SHAPE.LEFT_ARROW)
-    label(s, 5.47, 4.30, 2.40, "speed, RTF, lateral accel, gear", 13)
-    note_box(s, ["Plain UDP datagrams, two processes, optionally two machines. "
-                 "Chrono never learns what is on the other end: a console, a "
-                 "phone, a motion platform, a wheel rig, another simulator.",
-                 "The return arrow is the part people skip, and it is the one "
-                 "that makes the operator's device part of the loop instead of "
-                 "a remote control."], 5.30)
-    finish(s)
-
-    code_slide("Reading a device Chrono does not know about",
-               [E["udp"]],
-               ["Non-blocking is the whole trick: the simulation must never wait "
-                "on a human. A late datagram means 'hold the last input', not "
-                "'stall the loop'.",
-                "Sample ONCE per step and hold it, or one physics step sees a "
-                "different input than the next one for no reason the operator "
-                "can perceive."])
-
-    showtime(["Two terminals on one laptop over localhost, or two machines over a LAN",
-              "The console shows telemetry coming back while you drive"],
-             shots=["showtime_udp.png"],
-             note=["If the console's numbers stop moving, the loop is open and "
-                   "the operator is guessing. That is the failure this arrow "
-                   "exists to prevent."])
 
     # =========================================================================
     # 21-27. Reaching into the scene
@@ -704,14 +845,50 @@ def build(check_only=False):
         f"The gap, and the one line that closes it "
         f"(native_pick.py lines {E['native'][1]} to {E['native'][2]})")
 
-    code_slide("Picking a body, then pulling on it",
-               [E["pick"], E["spring"]],
-               ["`RayHit` is the pick. It is already in PyChrono and it is exact: "
-                "the same primitive a native mouse handler would call.",
-                "The spring is the part that has to be got right. Gains must scale "
-                f"with the mass being pulled: a stiffness tuned on a Go2 calf gave a "
-                f"Panda link `{N['panda_k']}`, which is `{N['panda_accel']}` and "
-                f"straight through the floor in one step."])
+    api_slide("Turning a click into a body: the ray-cast surface",
+              ["// chrono/collision/ChCollisionSystem.h",
+               "struct ChRayhitResult {",
+               "    bool hit;",
+               "    ChVector3d abs_hitPoint;     // where, in world coordinates",
+               "    ChVector3d abs_hitNormal;    // the surface normal there",
+               "    double dist_factor;          // 0 .. 1 along the segment",
+               "    ChCollisionModel* hitModel;  // -> CastToChBody() for the body",
+               "};",
+               "",
+               "virtual bool RayHit(const ChVector3d& from,",
+               "                    const ChVector3d& to,",
+               "                    ChRayhitResult& result) const;",
+               "",
+               "// A ray sees COLLISION geometry, never visual geometry. A link you",
+               "// can see but whose collision is off is invisible to every click.",
+               "// That one sentence accounted for every 'it will not pick' bug here."],
+              named(E["pick"], "hil_manipulate.py"),
+              ["Exposed in PyChrono already, and exact: the same primitive a native "
+               "mouse handler would call. Screen pixel to ray is your arithmetic; "
+               "ray to body is Chrono's."])
+
+    api_slide("Turning a pull into physics: force, or constraint",
+              ["// A human pulling on something is one of exactly two things.",
+               "",
+               "// 1. A FORCE, when you want a push of known size (chrono/physics/ChBody.h)",
+               "unsigned int idx = body->AddAccumulator();       // ONCE per body",
+               "body->EmptyAccumulator(idx);                     // your job, EVERY step",
+               "body->AccumulateForce(idx, force, appl_point, local);",
+               "body->AccumulateTorque(idx, torque, local);",
+               "",
+               "// 2. A CONSTRAINT, when you want a hand (chrono/physics/ChLinkTSDA.h)",
+               "spring->Initialize(handle, body, local, point1, point2);",
+               "spring->SetRestLength(0.0);",
+               "spring->SetSpringCoefficient(k);   // k = m*w^2   scale with the MASS",
+               "spring->SetDampingCoefficient(c);  // c = 2*m*w    critically damped",
+               "sys.AddLink(spring);"],
+              named(E["spring"], "hil_manipulate.py"),
+              ["Chrono never clears an accumulator for you, and `AddAccumulator()` "
+               "appends, so calling it per push leaks a slot and every stale slot "
+               "keeps contributing.",
+               f"Gains must scale with what is being pulled. A stiffness tuned on a "
+               f"0.154 kg Go2 calf gave a 2.7 kg Panda link `{N['panda_k']}`, which "
+               f"is `{N['panda_accel']}`: through the floor in a single step."])
 
     showtime(["Drag a leg while the stance controller fights back",
               "Drag a Franka link, hand-guided or fully unactuated",
@@ -722,14 +899,23 @@ def build(check_only=False):
                    "deck: you pull, the controller resists, you feel it resist, "
                    "and you pull differently."])
 
-    code_slide("Taking the human out of the part that must repeat",
-               [E["push"]],
-               ["A freehand drag cannot answer 'how hard can I shove it', because "
-                "no two drags are the same. The force depends on how fast your "
-                "hand moved and how long you held the button.",
-                "So the person keeps WHERE and WHICH DIRECTION, and the impulse "
-                "`J = F * dt` is scripted and printed. That is a number you can "
-                "put in a report and hand to somebody else."])
+    api_slide("Taking the human out of the part that must repeat",
+              ["# The pattern, not the API: decide which half of the human's input",
+               "# has to be repeatable, and script only that half.",
+               "#",
+               "#   the person keeps:   WHERE on the body, and WHICH DIRECTION",
+               "#   the machine keeps:  a constant force F held for a fixed window dt",
+               "#",
+               "#   impulse  J = F * dt      both printed, both logged",
+               "#",
+               "# A freehand drag cannot answer 'how hard can I shove it', because",
+               "# no two drags are the same: the force depends on how fast a hand",
+               "# moved and how long a button was held. There is no number at the end.",
+               "# Script the magnitude and you get one you can put in a report."],
+              named(E["push"], "hil_push.py"),
+              ["This is the human-ON-the-loop half of the taxonomy: the person sets "
+               "up the experiment and reads the verdict, and is deliberately not in "
+               "the inner loop, because being in it would destroy repeatability."])
 
     showtime([f"Forward at the base COM: `{N['push_fwd_ok']}` recovers, "
               f"`{N['push_fwd_fail']}` does not",
@@ -817,6 +1003,10 @@ def export_pdf():
     set dstPath to item 2 of argv
     tell application "Microsoft PowerPoint"
         activate
+        -- A presentation left open from an earlier run stays the "active" one,
+        -- and you export THAT: a stale PDF with a plausible page count.
+        close every presentation saving no
+        delay 1
         open POSIX file srcPath
         delay 3
         set pres to active presentation
