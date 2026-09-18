@@ -233,7 +233,9 @@ def scene_go2(system):
                 m.SetMotorFunction(chrono.ChFunctionConst(angle))
     grabbable = [b for b in system.GetBodies()
                  if any(k in b.GetName() for k in ("calf", "thigh", "foot", "base"))]
-    return grabbable, 0.9, "drag a leg; the joint motors fight you and pull it back"
+    base = [b for b in system.GetBodies() if b.GetName() == "base"][0]
+    return (grabbable, 0.9,
+            "drag a leg; the joint motors fight you and pull it back", base)
 
 
 def scene_arm(system):
@@ -257,7 +259,9 @@ def scene_arm(system):
         system.AddLink(joint)
         prev, z = link, z + length
         grabbable.append(link)
-    return grabbable, 1.4, "no motors anywhere: the arm is limp and moves only where you put it"
+    return (grabbable, 1.4,
+            "no motors anywhere: the arm is limp and moves only where you put it",
+            grabbable[0])
 
 
 def scene_place(system):
@@ -277,7 +281,8 @@ def scene_place(system):
     body.SetName("vehicle")
     body.GetVisualShape(0).SetColor(chrono.ChColor(0.15, 0.35, 0.75))
     system.AddBody(body)
-    return [body], 3.0, "kinematic placement: pose is set directly, and T logs it"
+    return ([body], 3.0,
+            "kinematic placement: pose is set directly, and T logs it", body)
 
 
 GO2_URDF = None          # filled in by main() from --urdf or the default path
@@ -335,7 +340,9 @@ def main(mode, headless_script=None):
     system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
     system.SetSleepingAllowed(False)     # a resting body would sleep through the spring
 
-    grabbable, chase, hint = SCENES[mode](system)
+    grabbable, chase, hint, anchor = SCENES[mode](system)
+    ap = anchor.GetPos()
+    cam_t = [ap.x, ap.y, ap.z]
     kinematic = (mode == "place")
     grabber = None if kinematic else Grabber(system)
 
@@ -354,6 +361,8 @@ def main(mode, headless_script=None):
     console = Console() if headless_script is None else None
     sel = 0
     held = False
+    lift = 0.0          # ] / [ toggle the handle moving up / down in Z
+    seen_packet = False
     system.DoStepDynamics(STEP)          # the collision system must exist to raycast
 
     print(f"\n{hint}")
@@ -374,6 +383,9 @@ def main(mode, headless_script=None):
         else:
             s, th, br = console.poll()
             cmds = console.take_commands()
+            if not seen_packet and console.addr is not None:
+                seen_packet = True
+                print(f"[udp] first packet from {console.addr[0]} - input is getting through")
 
         for c in cmds:
             if c == "n":
@@ -400,6 +412,12 @@ def main(mode, headless_script=None):
                 with open(log, "a") as fh:
                     fh.write(f"{t:8.3f}  {line}\n")
                 print(f"        -> {log}")
+            elif c == "u":
+                lift = +1.0 if lift <= 0.0 else 0.0
+                print(f"[lift] {'up' if lift > 0 else 'off'}")
+            elif c == "d":
+                lift = -1.0 if lift >= 0.0 else 0.0
+                print(f"[lift] {'down' if lift < 0 else 'off'}")
             elif c == "r":
                 if not kinematic and held:
                     grabber.release(); held = False
@@ -407,7 +425,7 @@ def main(mode, headless_script=None):
 
         dx = (th - br) * HANDLE_SPEED * STEP
         dy = s * HANDLE_SPEED * STEP
-        dz = 0.0
+        dz = lift * HANDLE_SPEED * STEP
         if kinematic:
             b = grabbable[sel]
             p = b.GetPos()
@@ -418,7 +436,14 @@ def main(mode, headless_script=None):
         if n % render_every == 0:
             # Keep the selected body in frame; there is no user camera control,
             # because PyChrono cannot read this window's mouse or keyboard.
-            look = grabbable[sel].GetPos()
+            # Follow the scene's anchor, not the selected part. Chasing the
+            # selection made the whole world appear to slide whenever a limb
+            # moved or the selection changed.
+            a = anchor.GetPos()
+            cam_t[0] += (a.x - cam_t[0]) * 0.08
+            cam_t[1] += (a.y - cam_t[1]) * 0.08
+            cam_t[2] += (a.z - cam_t[2]) * 0.08
+            look = chrono.ChVector3d(*cam_t)
             vis.UpdateCamera(chrono.ChVector3d(look.x + chase * 0.9,
                                                look.y - chase * 1.5,
                                                look.z + chase * 0.8), look)
