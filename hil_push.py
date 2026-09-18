@@ -65,20 +65,37 @@
 #         the interactive demo: click the robot, set direction and magnitude,
 #         SPACE to fire, X to reset the robot to its stance.
 #
-#     conda run -n chrono1187 python hil_push.py --headless --mag 200 --dir 1,0,0
+#     conda run -n chrono1187 python hil_push.py --headless --mag 300 --dir 1,0,0
 #         one scripted push, no windows, the recovery trace printed as a table.
+#         Add --repeat 5 to get the run-to-run band instead of one number.
 #
-#     conda run -n chrono1187 python hil_push.py --sweep 60:420:60 --refine
-#         escalating pushes until one of them wins, then a bisection for the
-#         magnitude where recovery stops.  This is the deliverable.
+#     conda run -n chrono1187 python hil_push.py --sweep 100:600:50 --trials 5 --refine
+#         escalating pushes until the controller loses, with a pass RATE at each
+#         magnitude, then a bisection on the always-recovers/always-falls
+#         bracket.  This is the deliverable.
+#
+# WHAT IT MEASURES, on the Go2 with PART 9's PD stance controller (15.02 kg,
+# standing at base z 0.2715 m, uprightness 0.9997), pushed at the base COM for
+# 50 ms, 5 trials per magnitude:
+#
+#     forward +X    <= 300 N (15.0 N.s)   5/5 recover, peak dz 2.2 cm, ~0.9 s
+#                      338 N (16.9 N.s)   5/5 recover, but 334 N has gone 2/5
+#                   >= 350 N (17.5 N.s)   0/5, flat on its back, up = -1.0
+#     lateral +Y    <= 280 N (14.0 N.s)   5/5 recover, peak dz 2.6 cm, ~1.5 s
+#                   >= 300 N (15.0 N.s)   0/5, on its side, up = -0.35
+#
+# Sideways is the weak axis by about 15 percent, which is what a quadruped's
+# support polygon says it should be, and the failure is a cliff rather than a
+# slope: 338 N loses 2.9 cm of height and comes back, 350 N ends upside down
+# 59 cm away.  That is a stance controller with no stepping reflex, exactly.
 #
 # CONTROLS (all work from either window)
 #     click on the robot   set the application point (it sticks to that link)
 #     SPACE                fire the configured push
 #     X                    reset the robot to its stance and re-settle
 #     C                    clear the point back to the base COM
-#     left/right           azimuth  -/+ 2 deg          [ ]   magnitude -/+
-#     up/down              elevation -/+ 2 deg         T     log a state line
+#     left/right           azimuth, held, 60 deg/s      T   log a state line
+#     up/down              elevation, held, 60 deg/s    [ ] magnitude, 150 N/s
 #     A/D orbit   W/S zoom   R/F camera height
 # =============================================================================
 
@@ -87,7 +104,6 @@ import csv
 import math
 import os
 import sys
-import time
 
 try:
     import pychrono as chrono
@@ -702,9 +718,12 @@ def run_sweep(args):
                     print(f"[log] {args.log}")
                 return rig, results, (a, b)
 
-    print(f"\nRECOVERY THRESHOLD: always recovers at {a:.0f} N "
-          f"({(a or 0)*args.dur:.2f} N.s), always falls at {b:.0f} N "
-          f"({b*args.dur:.2f} N.s)")
+    ok = ("nothing in this sweep" if a is None
+          else f"{a:.0f} N ({a*args.dur:.2f} N.s)")
+    print(f"\nRECOVERY THRESHOLD: always recovers at {ok}, "
+          f"always falls at {b:.0f} N ({b*args.dur:.2f} N.s)")
+    if a is None:
+        print("  the bottom of the sweep already failed -- lower --sweep LO")
     if trials == 1:
         print("  (one trial per magnitude -- rerun with --trials 5 before "
               "quoting this to anyone)")
@@ -1026,9 +1045,20 @@ def run_interactive(args):
     status = "ARMED"
     n = 0
     running = True
+    # The scripted hook, the same shape as hil_manipulate.main's headless_script:
+    # the demo can fire itself at a fixed time and quit at another, so the whole
+    # windowed path can be exercised without a person in front of it.
+    t0 = rig.t()
+    auto_fired = False
 
     while running and vis.Run():
         t = rig.t()
+        if args.auto_push is not None and not auto_fired and t - t0 >= args.auto_push:
+            rig.fire()
+            status = "PUSHING"
+            auto_fired = True
+        if args.seconds and t - t0 >= args.seconds:
+            break
         cmds = []
         if console is not None:
             console.poll()
@@ -1123,6 +1153,11 @@ def run_interactive(args):
             if panel is not None:
                 panel.draw(rig.cfg, status, rig.standing(), rig.records)
 
+    if args.shot:
+        marker.update(rig.cfg, False)
+        vis.BeginScene(); vis.Render(); vis.EndScene()
+        vis.WriteImageToFile(args.shot)
+        print(f"[shot] {args.shot}")
     if panel is not None:
         panel.close()
     print(f"\n{len(rig.records)} push(es) this session; log at {args.log}")
@@ -1188,6 +1223,12 @@ def build_parser():
     p.add_argument("--log", default=os.path.join(HERE, "push_log.csv"))
     p.add_argument("--no-panel", action="store_true",
                    help="interactive without the pygame panel (keys only)")
+    p.add_argument("--seconds", type=float, default=0.0,
+                   help="interactive: quit after this many sim seconds (0 = never)")
+    p.add_argument("--auto-push", type=float, default=None,
+                   help="interactive: fire the configured push at this sim time")
+    p.add_argument("--shot", default=None,
+                   help="interactive: write a PNG of the last frame")
     p.add_argument("--urdf", default=None)
     p.add_argument("--z-tol", type=float, default=0.04,
                    help="m, base height band that counts as recovered")

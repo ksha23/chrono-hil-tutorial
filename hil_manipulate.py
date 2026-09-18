@@ -540,6 +540,26 @@ def ground_plane(system, size=20.0):
     return g
 
 
+class LimpJoint:
+    """An unactuated joint: no control at all, only bearing friction.
+
+    Zero torque would be more literally "unactuated", but a frictionless 7-link
+    chain is a chaotic pendulum that swings forever and never settles. Real
+    joints have friction, so a little viscous damping is the honest model and it
+    lets the arm collapse and come to rest, which is the thing worth watching.
+    """
+
+    KD = 1.2
+    TAU_MAX = 40.0
+
+    def __init__(self, motor, fn, target):
+        self.motor, self.fn, self.target = motor, fn, target
+
+    def update(self):
+        tau = -self.KD * self.motor.GetMotorAngleDt()
+        self.fn.SetConstant(max(-self.TAU_MAX, min(self.TAU_MAX, tau)))
+
+
 class FreeDriveJoint:
     """Cobot-style free drive: holds its pose, but yields to a sustained push.
 
@@ -687,7 +707,7 @@ def scene_go2(system):
             "drag a leg; the joint motors fight you and pull it back", base)
 
 
-def scene_arm(system):
+def scene_arm(system, actuated=True):
     """A real Franka Emika Panda, limp: no motors, just joint damping.
 
     Was three primitive boxes on revolute joints, which is a triple pendulum --
@@ -741,14 +761,16 @@ def scene_arm(system):
         if m:
             fn = chrono.ChFunctionConst(0.0)
             m.SetMotorFunction(fn)
-            dampers.append(FreeDriveJoint(m, fn, m.GetMotorAngle()))
+            cls = FreeDriveJoint if actuated else LimpJoint
+            dampers.append(cls(m, fn, m.GetMotorAngle()))
     system.stance_holders = dampers
 
     grabbable = [b for b in system.GetBodies()
                  if b.GetName().startswith("panda_link") and not b.IsFixed()]
-    return (grabbable, 1.1,
-            "a limp Franka: no motors, only damping - push a link and it stays put",
-            root if root else grabbable[0])
+    hint = ("hand guiding: it holds its pose, and complies while you hold a link"
+            if actuated else
+            "unactuated: nothing is holding it up, so it collapses under gravity")
+    return (grabbable, 1.1, hint, root if root else grabbable[0])
 
 
 def scene_place(system):
@@ -841,7 +863,12 @@ def make_chrono_safe_urdf(path):
 # -----------------------------------------------------------------------------
 # The loop: the same shape as every other part of this tutorial
 # -----------------------------------------------------------------------------
-SCENES = {"go2": scene_go2, "arm": scene_arm, "place": scene_place}
+SCENES = {
+    "go2": scene_go2,
+    "arm": scene_arm,                                   # hand-guided
+    "arm-limp": lambda sysm: scene_arm(sysm, actuated=False),
+    "place": scene_place,
+}
 
 
 def main(mode, headless_script=None, use_udp=False):

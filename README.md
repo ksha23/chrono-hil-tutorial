@@ -384,7 +384,8 @@ python hil_manipulate.py go2 --udp
 | mode | what it shows |
 |---|---|
 | `go2` | a real Unitree Go2 from URDF, joint motors holding a stance while you haul a leg out of it |
-| `arm` | a three-link arm with no motors at all -- limp, and it stays where you leave it |
+| `arm` | a Franka Emika Panda in hand-guiding mode: it holds its pose, and complies while you hold a link |
+| `arm-limp` | the same arm with nothing holding it up, so it collapses under gravity and stays down |
 | `place` | kinematic placement: the pose is *set*, not pushed, and `T` logs it to `placement_place.log` |
 
 Input comes from `operator_console.py` over UDP, unchanged -- arrows move the
