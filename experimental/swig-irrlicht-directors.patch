@@ -1,0 +1,17 @@
+diff --git a/src/chrono_swig/interface/irrlicht/ChModuleIrrlicht.i b/src/chrono_swig/interface/irrlicht/ChModuleIrrlicht.i
+index 1ca52f70c..5e61394ef 100644
+--- a/src/chrono_swig/interface/irrlicht/ChModuleIrrlicht.i
++++ b/src/chrono_swig/interface/irrlicht/ChModuleIrrlicht.i
+@@ -173,6 +173,12 @@ using namespace gui;
+ %ignore irr::io::createWriteFile;
+ %include "IWriteFile.h"
+ %include "IVideoDriver.h"
++// EXPERIMENT: let Python subclass the Irrlicht event receiver.
++// Without directors SWIG wraps IEventReceiver as an abstract class with no
++// constructor, so PyChrono can see the type but cannot implement one -- which
++// is why a Python script cannot read the mouse or keyboard of the Irrlicht
++// window at all, and has to go to the OS behind Chrono's back.
++%feature("director") irr::IEventReceiver;
+ %include "IEventReceiver.h"
+ %include "ISceneNode.h"
+ %include "ICameraSceneNode.h"

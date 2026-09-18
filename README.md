@@ -417,6 +417,18 @@ The stance is held by position motors rather than a learned policy. Swapping in
 the repo's pretrained `.pt` would need torch plus that policy's exact
 observation layout; the demo is about the perturbation, not the controller.
 
+## The mouse layer is not Chrono
+
+The grab-and-drag in `hil_manipulate.py` reaches the Irrlicht window through
+macOS itself. That is 135 lines, macOS-only, and a workaround rather than a
+capability: PyChrono exposes `irr::IEventReceiver` but without SWIG directors,
+so it is abstract with no constructor and cannot be implemented from Python.
+
+Adding one line to Chrono's SWIG interface fixes it, and the same feature then
+takes 18 portable lines. Built, tested and written up in
+[`experimental/`](experimental/README.md) -- along with what Genesis gives its
+users for comparison. Nothing there is needed to follow this tutorial.
+
 ## Things to try
 
 - `REALTIME = "none"` with `step_size = 5e-4`: RTF goes above 1 and no timer can save you.
