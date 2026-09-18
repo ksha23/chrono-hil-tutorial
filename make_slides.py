@@ -453,7 +453,7 @@ def build(check_only=False):
     E["spring"] = excerpt("hil_manipulate.py", "omega = getattr(self.system,",
                           "self.system.AddLink(self.spring)")
     E["push"] = excerpt("hil_push.py", "def fire(self, cfg, t):",
-                        "body.AccumulateForce(idx, force,")
+                        "body.AccumulateForce(idx, force,", extra=1)
     E["native"] = excerpt("experimental/native_pick.py", "class MouseReceiver",
                           "elif ev.MouseInput.Event == irr.EMIE_LMOUSE_LEFT_UP:", extra=1)
 
@@ -629,15 +629,17 @@ def build(check_only=False):
         finish(s)
         return s
 
-    def showtime(name, what, why, lines, note=None, shots=None):
+    def showtime(n, name, what, why, lines, note=None, shots=None):
         """A demo slide that says what it is and why anyone should care.
 
         "Demo Time" on its own tells an audience nothing, and a demo nobody has
-        been given a reason to watch is a pause in the talk. Delegates to
-        bullets so it inherits the same shrink-to-fit and the same figure
-        placement, which is below the text rather than through it.
+        been given a reason to watch is a pause in the talk. The number is the
+        same one the roadmap promised, so nobody has to work out which of the
+        four they are watching. Delegates to bullets so it inherits the same
+        shrink-to-fit and the same figure placement, which is below the text
+        rather than through it.
         """
-        return bullets(f"Demo Time: {name}",
+        return bullets(f"Demo {n}: {name}",
                        [f"`WHAT`  {what}", f"`WHY`   {why}"] + list(lines),
                        note=note, shots=shots)
 
@@ -659,29 +661,32 @@ def build(check_only=False):
             ["1.  `What counts as human-in-the-loop`, and what it demands of a "
              "simulator. A definition we will hold every demo against.",
              "2.  `The clock.` Why pacing comes first, and the levers Chrono gives "
-             "you for buying enough slack to pace at all.",
+             "you for making a step cheap enough to pace at all.",
              "3.  `Getting a person's input into the state.` The driver surface, the "
              "input devices Chrono already speaks, and what to do about the ones it "
              "does not.",
              "4.  `Reaching into the scene.` Picking a body, pulling on it, and a "
              "one-line gap in PyChrono that this talk closes.",
-             "Four demos along the way, and the code is all in one repository you "
+             "Four demos along the way. All the code is in one repository you "
              "can clone."],
             note=["The order is deliberate. The clock comes before the input, "
                   "because input into a simulation that cannot hold real time is "
                   "not human-in-the-loop, whatever else it is."])
 
     bullets("The four demos",
-            ["1.  `Does the clock matter.` The same drive twice, paced and unpaced.",
-             "2.  `A person driving.` Keyboard into a vehicle, the textbook case.",
-             "3.  `Reaching in.` Drag a quadruped's leg while a trained "
+            ["Demo 1.  `Does the clock matter.` The same drive twice, paced and "
+             "unpaced.",
+             "Demo 2.  `A person driving.` Keyboard into a vehicle, the textbook case.",
+             "Demo 3.  `Reaching in.` Drag a quadruped's leg while a trained "
              "locomotion policy fights you, and a Franka arm with the motors on or off.",
-             "4.  `How hard can you shove it.` A measured impulse at a point you "
-             "choose, and the magnitude where recovery stops."],
+             "Demo 4.  `How hard can you shove it.` A measured impulse at a point you "
+             "choose, and the magnitude where recovery stops.",
+             "The demo numbers are their own: demo 1 closes the clock section, "
+             "demo 2 the input section, demos 3 and 4 the last one."],
             shots=["hmmwv.png", "demo_go2.png", "demo_arm.png", "demo_push.png"])
 
     # =========================================================================
-    # 2-6. What we mean by it
+    # Slides 4-9. What we mean by it
     # =========================================================================
     section("What counts as human-in-the-loop",
             "the definition this tutorial works to, and the three things it "
@@ -700,44 +705,9 @@ def build(check_only=False):
                   "point of the tutorial: a car, a crane, a gearbox and a "
                   "quadruped's leg all satisfy it, and they satisfy it the same way."])
 
-    bullets("What a person in the loop is for",
-            ["`Measuring the person.` Human factors: what does an operator do when "
-             "the controls are delayed, when an assist takes authority, when a "
-             "hazard appears late?",
-             "`Training the person.` Here the simulator IS the product, and the "
-             "fidelity bar is whether it feels like the real thing.",
-             "`Collecting data from the person.` Demonstrations for imitation "
-             "learning, driver models, reference trajectories no controller would "
-             "have produced.",
-             "`Testing the machine against a person.` Someone perturbs a controller "
-             "in ways a scripted test would never have thought to try.",
-             "`Judging the machine by feel.` Reach in, pull on it, see whether it "
-             "behaves plausibly. Faster than any metric at answering 'something is "
-             "wrong here'.",
-             "`Designing shared control.` When authority is split between a person "
-             "and a controller, neither half can be evaluated alone.",
-],
-            note=["Two different jobs hide in that list. Sometimes the person is "
-                  "the SUBJECT being measured; sometimes the person is the "
-                  "CONTROLLER, because nothing else can do the task. Either way the "
-                  "simulator has to hold wall-clock time, or you are measuring the "
-                  "simulator instead of the person."])
-
-    bullets("A study Chrono has already carried",
-            ["Remote car-following under latency. Forty participants, four groups "
-             "of ten. Uplink delayed their inputs, downlink delayed the video back.",
-             "`Chrono::Vehicle` ego and lead dynamics, `SynChrono` between the two "
-             "nodes, `Chrono::Sensor` for the forward camera on three monitors at "
-             "60 Hz, `Chrono::HIL` for a Logitech G29 wheel and pedals.",
-             "Mitigation cut driving incidents 72%, though not significantly, and "
-             "significantly lowered steering entropy at high speed. Adaptation "
-             "across the three latency trials dominated the effect."],
-            shots=["hil_rig.png", "remote_driving_study.png"],
-            cite=["Ma, McDonald, Sha, Zhang, Xu, Negrut. \"Evaluating a "
-                  "delay-compensated shared-control system in high- and low-speed "
-                  "remote car-following.\""])
-
     # -- the loop diagram ----------------------------------------------------
+    # The picture belongs next to the definition it draws, not three slides
+    # later: the same three clauses, as boxes and arrows.
     s = new(TITLE_ONLY)
     title_of(s, "The loop, and the clock around it")
     box(s, 0.60, 2.30, 3.30, 1.30, "Person", ["sees, decides, acts"])
@@ -769,11 +739,49 @@ def build(check_only=False):
                   "get used interchangeably and only one of them has a clock in it. "
                   "All three are useful. Only the first two are what the phrase means."])
 
+    bullets("A study Chrono has already carried",
+            ["Remote car-following under latency. Forty participants, four groups "
+             "of ten. Uplink delayed their inputs, downlink delayed the video back.",
+             "`Chrono::Vehicle` ego and lead dynamics, `SynChrono` between the two "
+             "nodes, `Chrono::Sensor` for the forward camera on three monitors at "
+             "60 Hz, `Chrono::HIL` for a Logitech G29 wheel and pedals.",
+             "Mitigation cut driving incidents 72%, though not significantly, and "
+             "significantly lowered steering entropy at high speed. Adaptation "
+             "across the three latency trials dominated the effect."],
+            shots=["hil_rig.png", "remote_driving_study.png"],
+            cite=["Ma, McDonald, Sha, Zhang, Xu, Negrut. \"Evaluating a "
+                  "delay-compensated shared-control system in high- and low-speed "
+                  "remote car-following.\""])
+
+    bullets("What a person in the loop is for",
+            ["`Measuring the person.` Human factors, which is what that study "
+             "measured: how does an operator behave when the controls are "
+             "delayed, when an assist takes authority, when a hazard appears late?",
+             "`Training the person.` Here the simulator IS the product, and the "
+             "fidelity bar is whether it feels like the real thing.",
+             "`Collecting data from the person.` Demonstrations for imitation "
+             "learning, driver models, reference trajectories no controller would "
+             "have produced.",
+             "`Testing the machine against a person.` Someone perturbs a controller "
+             "in ways a scripted test would never have thought to try.",
+             "`Judging the machine by feel.` Reach in, pull on it, see whether it "
+             "behaves plausibly. Faster than any metric at answering 'something is "
+             "wrong here'.",
+             "`Designing shared control.` When authority is split between a person "
+             "and a controller, neither half can be evaluated alone.",
+],
+            note=["Two different jobs hide in that list. Sometimes the person is "
+                  "the SUBJECT being measured; sometimes the person is the "
+                  "CONTROLLER, because nothing else can do the task. Either way the "
+                  "simulator has to hold wall-clock time, or you are measuring the "
+                  "simulator instead of the person."])
+
     # =========================================================================
-    # 7-13. The clock
+    # Slides 10-16. The clock
     # =========================================================================
     section("Requirement 3 comes first: the clock",
-            "it decides whether the other two requirements are worth anything")
+            "the definition is settled, so start with the clause that decides "
+            "whether the other two are worth anything")
 
     bullets("What real time means in Chrono",
             ["Chrono integrates as fast as it can. It has no notion of wall-clock time.",
@@ -805,9 +813,9 @@ def build(check_only=False):
               ["Two calls. Everything else about real time is arithmetic around them.",
                "Per-step timers never recover time lost on a slow step. If you need "
                "the sim to catch up after a stall, pace against TOTAL elapsed time "
-               "instead, which is the third mode in this tutorial."])
+               "instead, which is the `cumulative` mode above."])
 
-    showtime("does the clock actually matter",
+    showtime(1, "does the clock actually matter",
              "the same scripted drive twice, once pacing to wall clock and once not",
              "it turns the real-time requirement from an assertion into a column "
              "you can watch run away",
@@ -819,14 +827,17 @@ def build(check_only=False):
                    "average while the sim has already lost a second of wall clock."])
 
     bullets("You can only sleep if you have slack",
-            ["Holding the clock is two problems, and only one of them is a call:",
-             ("do not run FAST  -  sleep off the slack", 1),
-             ("do not run SLOW  -  make the step cheap enough to HAVE slack", 1),
+            ["That demo was the easy half. `Spin(step)` hands back time the step "
+             "did not use, and if the step costs more than `step` there is nothing "
+             "to hand back and no call that changes it.",
              "The budget is fixed: one step of wall clock, minus what you spend "
-             "drawing, minus what you leave as margin for a bad step.",
-             "What follows is the set of levers Chrono gives you for the second "
-             "problem, in rough order of how much they usually buy."],
-            note=["Reach for them in this order. People tend to start at the "
+             "drawing, minus what you leave as margin for a bad step. Contacts, "
+             "solver iterations, terrain and drawing all come out of the same one.",
+             "So the hard half is the only half left: make the step cheap enough "
+             "that there is slack to sleep off in the first place.",
+             "What follows is the set of levers Chrono gives you for that, in "
+             "rough order of how much they usually buy."],
+            note=["Reach for them in that order. People tend to start at the "
                   "solver, which is near the bottom of the list and the easiest "
                   "place to spend an afternoon for nothing."])
 
@@ -876,10 +887,11 @@ def build(check_only=False):
                "decision, and most of them are one line."])
 
     # =========================================================================
-    # 14-20. A path into the state
+    # Slides 17-23. A path into the state, and a path back
     # =========================================================================
-    section("Requirement 1: a path into the state",
-            "how a person's action actually reaches the equations")
+    section("Requirements 1 and 2: a path in, and a path back",
+            "the clock is held, so now the person needs a way to act on the state "
+            "and a way to see what happened")
 
     s = new(TITLE_ONLY)
     title_of(s, "Three ways a person's input enters a Chrono simulation")
@@ -889,8 +901,8 @@ def build(check_only=False):
         ["AccumulateForce, ChLinkTSDA", "on any body, any scene"])
     box(s, 8.94, 2.05, 3.90, 1.70, "As a pose you set",
         ["SetPos / SetRot", "kinematic placement"])
-    label(s, 0.50, 3.90, 3.90, "the vehicle demos  (Parts 2-4)", 15)
-    label(s, 4.72, 3.90, 3.90, "the drag and push demos  (Parts 9-10)", 15)
+    label(s, 0.50, 3.90, 3.90, "demos 1 and 2, the vehicle", 15)
+    label(s, 4.72, 3.90, 3.90, "demos 3 and 4, the drag and the push", 15)
     label(s, 8.94, 3.90, 3.90, "the placement tool", 15)
     label(s, 0.50, 4.45, 3.90, "IN the loop", 15, color=ACCENT)
     label(s, 4.72, 4.45, 3.90, "IN the loop", 15, color=ACCENT)
@@ -970,17 +982,17 @@ def build(check_only=False):
              ("mapped axes: steering, throttle, brake, CLUTCH", 1),
              ("mapped buttons: shift up/down, reverse, gears 1-9, manual-gearbox toggle, "
               "plus one user callback", 1),
-             "Four configs ship in `data/vehicle/joystick/`: Default, Logitech "
-             "RumblePad 2, Xbox One, and Wheel+Pedals+Shifters",
+             "So a G923-class rig is a config file, not a port. Four ship in "
+             "`data/vehicle/joystick/`: Default, Logitech RumblePad 2, Xbox One, "
+             "and Wheel+Pedals+Shifters.",
              "Each control names its own DEVICE, so a wheel, a pedal box and an "
-             "H-shifter enumerating as three separate USB devices all map at once",
-             "Not hypothetical: the remote-driving study on slide 5 ran on a "
-             "Logitech G29 wheel and pedal set through this path"],
-            note=["So a G923-class rig is a config file, not a port. The mapping and "
-                  "the semantics are Chrono's and cross-platform; enumerating the "
-                  "device is delegated to the windowing layer, so which platforms "
-                  "see your wheel follows that layer, and I have not tested it here.",
-                  "All of it is exposed to PyChrono."])
+             "H-shifter enumerating as three separate USB devices all map at once.",
+             "Not hypothetical: the car-following study earlier in this talk ran "
+             "on a Logitech G29 wheel and pedal set through this path."],
+            note=["The mapping and the semantics are Chrono's, and all of it is "
+                  "exposed to PyChrono. Enumerating the device is delegated to the "
+                  "windowing layer, so which platforms see your wheel follows that "
+                  "layer, and I have not tested it here."])
 
     bullets("And for a device Chrono does not know about",
             ["Subclass `ChDriver`, read whatever you like, and obey three rules:",
@@ -993,11 +1005,12 @@ def build(check_only=False):
              "driving open loop, which is not human-in-the-loop by our definition.",
              "Obey those and the transport does not matter: a socket, a serial "
              "port, shared memory, a ROS topic, another simulator."],
-            note=["This tutorial ships one of these, an operator console on UDP, "
+            note=["The repository has one of these in its archive, an operator "
+                  "console on UDP, "
                   "so a second machine can drive the simulation and watch telemetry "
                   "come back."])
 
-    showtime("a person driving the vehicle",
+    showtime(2, "a person driving the vehicle",
              "keyboard straight into ChInteractiveDriver, HMMWV on rigid terrain",
              "the whole definition satisfied in one window, and the baseline every "
              "other demo is measured against",
@@ -1010,11 +1023,11 @@ def build(check_only=False):
                    "timer holds the pace."])
 
     # =========================================================================
-    # 21-27. Reaching into the scene
+    # Slides 24-31. Reaching into the scene
     # =========================================================================
     section("Reaching into the scene with a mouse",
-            "what Chrono provides today, the one line it is missing, and what "
-            "that buys")
+            "the driver class only covers vehicles, so here is what Chrono gives "
+            "everything else, the one line it is missing, and what that buys")
 
     bullets("What Chrono gives you today",
             ["`ChRealtimeStepTimer`  -  the pacing, exposed to Python",
@@ -1025,35 +1038,10 @@ def build(check_only=False):
              "the socket for any input device, and it IS bound in Python",
              "What is NOT there: any built-in mouse pick-and-drag. No module in "
              "the tree implements one."],
-            note=["That last line is the gap this tutorial walks into. Everything "
-                  "needed to build one is already exposed; what is missing is the "
-                  "ability to receive the mouse event in the first place."])
-
-    code_slide("The gap, and the one line that closes it",
-               [("# chrono_swig/interface/irrlicht/ChModuleIrrlicht.i\n"
-                 "+%feature(\"director\") irr::IEventReceiver;\n"
-                 "%include \"IEventReceiver.h\"\n"
-                 "\n"
-                 "# The module ALREADY compiles with directors enabled:\n"
-                 "#     %module(directors=\"1\", threads=\"1\") irrlicht\n"
-                 "# and AddUserEventReceiver is ALREADY bound. Without the\n"
-                 "# director, though, Python gets an abstract class:\n"
-                 "#     >>> ci.IEventReceiver()\n"
-                 "#     AttributeError: No constructor defined - class is abstract\n"
-                 "# so there is a socket, and nothing you can plug into it.",
-                 0, 0)] + [E["native"]],
-               [f"Without it, reading the mouse means going around Chrono to the "
-                f"operating system: `{N['lines_workaround']} lines`, macOS only, "
-                f"and it breaks when another window takes focus.",
-                f"With it, the same capability is `{N['lines_native']} lines` of "
-                f"ordinary PyChrono. Upstream PR to follow this talk."],
-               top=1.32)
-    # The patch block above is hand-written, not quoted, so drop its fake range
-    # from the title rather than cite lines 0 to 0.
-    t = prs.slides[-1].shapes.title.text_frame
-    t.paragraphs[0].runs[0].text = (
-        f"The gap, and the one line that closes it "
-        f"(native_pick.py lines {E['native'][1]} to {E['native'][2]})")
+            note=["A mouse drag is three steps: hear the click, turn it into a "
+                  "body, turn the pull into physics. Chrono exposes the last two, "
+                  "and they come next. The first one is the gap, and it comes "
+                  "after them."])
 
     api_slide("Turning a click into a body: the ray-cast surface",
               ["// chrono/collision/ChCollisionSystem.h",
@@ -1100,7 +1088,38 @@ def build(check_only=False):
                f"0.154 kg Go2 calf gave a 2.7 kg Panda link `{N['panda_k']}`, which "
                f"is `{N['panda_accel']}`: through the floor in a single step."])
 
-    showtime("reaching in and pulling on a robot",
+    # The gap comes AFTER the two surfaces it depends on. Shown cold it is a
+    # SWIG diff; shown once the audience has seen that the pick is one call and
+    # the pull is one link, it is the only step of the three you cannot take
+    # from Python.
+    code_slide("The gap, and the one line that closes it",
+               [("# chrono_swig/interface/irrlicht/ChModuleIrrlicht.i\n"
+                 "+%feature(\"director\") irr::IEventReceiver;\n"
+                 "%include \"IEventReceiver.h\"\n"
+                 "\n"
+                 "# The module ALREADY compiles with directors enabled:\n"
+                 "#     %module(directors=\"1\", threads=\"1\") irrlicht\n"
+                 "# and AddUserEventReceiver is ALREADY bound. Without the\n"
+                 "# director, though, Python gets an abstract class:\n"
+                 "#     >>> ci.IEventReceiver()\n"
+                 "#     AttributeError: No constructor defined - class is abstract\n"
+                 "# so there is a socket, and nothing you can plug into it.",
+                 0, 0)] + [E["native"]],
+               [f"The pick and the pull were both one call. Hearing the click is "
+                f"the step that is not: without the director it means going around "
+                f"Chrono to the operating system, `{N['lines_workaround']} lines`, "
+                f"macOS only, and it breaks when another window takes focus.",
+                f"With it, the same capability is `{N['lines_native']} lines` of "
+                f"ordinary PyChrono. Upstream PR to follow this talk."],
+               top=1.32)
+    # The patch block above is hand-written, not quoted, so drop its fake range
+    # from the title rather than cite lines 0 to 0.
+    t = prs.slides[-1].shapes.title.text_frame
+    t.paragraphs[0].runs[0].text = (
+        f"The gap, and the one line that closes it "
+        f"(native_pick.py lines {E['native'][1]} to {E['native'][2]})")
+
+    showtime(3, "reaching in and pulling on a robot",
              "click a link and drag it while its controller keeps working",
              "human input as a FORCE rather than as driver inputs, which is how "
              "everything that is not a vehicle gets a person in its loop",
@@ -1130,7 +1149,7 @@ def build(check_only=False):
                "up the experiment and reads the verdict, and is deliberately not in "
                "the inner loop, because being in it would destroy repeatability."])
 
-    showtime("how hard can you shove it",
+    showtime(4, "how hard can you shove it",
              "click a point on the robot, set a direction and a magnitude, and "
              "fire an impulse of fixed duration",
              "it turns 'is this controller robust' into a number, which is "
@@ -1139,21 +1158,22 @@ def build(check_only=False):
               "was carried, and how long it took to settle.",
               "Sweep the magnitude and it finds the threshold. With the "
               f"locomotion policy driving: `{N['pol_fwd_ok']}` recovers, "
-              f"`{N['pol_fwd_fail']}` does not. Sideways is weaker, at "
-              f"`{N['pol_lat_ok']}`/`{N['pol_lat_fail']}`.",
+              f"`{N['pol_fwd_fail']}` does not. Sideways is weaker: "
+              f"`{N['pol_lat_ok']}` recovers, `{N['pol_lat_fail']}` does not.",
               "Change the controller and the threshold moves. The same robot "
-              f"held by a PD stance instead tips at `{N['push_fwd_ok']}`, because "
-              "a stance can only stiffen while the policy steps into the push.",
+              f"held by a PD stance goes over just past `{N['push_fwd_ok']}`, "
+              "because a stance can only stiffen while the policy steps into "
+              "the push.",
               "Where you click matters too: the same impulse 5 cm higher up the "
               "torso can flip the verdict."],
              shots=["demo_push.png"])
 
     # =========================================================================
-    # 28-30. Close
+    # Slides 32-33. Close
     # =========================================================================
     bullets("Where to go next",
             ["This tutorial   `github.com/ksha23/chrono-hil-tutorial`",
-             ("every part, the demos, and the SWIG director patch under "
+             ("all four demos, and the SWIG director patch under "
               "`experimental/`", 1),
              "Chrono   `projectchrono.org`   `github.com/projectchrono/chrono`",
              ("`conda install -c projectchrono pychrono`", 1),

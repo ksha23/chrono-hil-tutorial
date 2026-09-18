@@ -201,7 +201,8 @@ Set `PLANT = "crane"` or `"rover"` in `tutorial_HIL_driver.py` to drive either.
 The quadruped is driven by a trained locomotion policy, not by a PD holding a
 pose. That is the difference between a robot that stiffens against a shove and
 one that picks a foot up and steps into it, and the push rig reports it as a
-number: the stance PD tips at 325 N, the policy at 1850 N.
+number: the stance PD recovers from 325 N and goes over at 330, the policy
+recovers from 1850 N and goes over at 1900.
 
 The checkpoint is third-party and not vendored here:
 
