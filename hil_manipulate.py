@@ -110,6 +110,68 @@ class Console:
             self.sock.sendto(text.encode(), self.addr)
 
 
+class LocalInput:
+    """A small pygame window in this same process, so one command is enough.
+
+    PyChrono still cannot read the Irrlicht window (SWIG directors are off, and
+    getCursorControl() returns an unwrapped object), so the keys have to be read
+    by something else -- but that something does not have to be another process.
+    pygame and Irrlicht coexist happily here; only the socket was ever needed.
+
+    Same interface as Console, so the loop cannot tell them apart.
+    """
+
+    KEYS = None          # filled in on first use, so pygame is imported lazily
+
+    def __init__(self):
+        import pygame
+        self.pg = pygame
+        pygame.init()
+        self.screen = pygame.display.set_mode((460, 190))
+        pygame.display.set_caption("hil_manipulate - input (keep this window focused)")
+        self.font = pygame.font.SysFont("menlo,dejavusansmono,monospace", 15)
+        LocalInput.KEYS = {
+            pygame.K_RIGHTBRACKET: "u", pygame.K_LEFTBRACKET: "d",
+            pygame.K_z: "f", pygame.K_x: "n", pygame.K_c: "r", pygame.K_t: "m",
+        }
+        self.commands = []
+        self.last = (0.0, 0.0, 0.0)
+        self.addr = ("local", 0)
+        self.status = ""
+        print("[input] local window open - keep IT focused, not the 3D view")
+
+    def poll(self):
+        pg = self.pg
+        for ev in pg.event.get():
+            if ev.type == pg.QUIT:
+                raise SystemExit
+            if ev.type == pg.KEYDOWN:
+                if ev.key == pg.K_ESCAPE:
+                    raise SystemExit
+                if ev.key in LocalInput.KEYS:
+                    self.commands.append(LocalInput.KEYS[ev.key])
+        k = pg.key.get_pressed()
+        steer = (-1.0 if k[pg.K_LEFT] else 0.0) + (1.0 if k[pg.K_RIGHT] else 0.0)
+        thr = 1.0 if k[pg.K_UP] else 0.0
+        brk = 1.0 if k[pg.K_DOWN] else 0.0
+        self.last = (steer, thr, brk)
+        return self.last
+
+    def take_commands(self):
+        c, self.commands = self.commands, []
+        return c
+
+    def send(self, text):
+        self.status = text
+
+    def draw(self, lines):
+        pg = self.pg
+        self.screen.fill((18, 18, 22))
+        for i, line in enumerate(lines):
+            self.screen.blit(self.font.render(line, True, (220, 220, 200)), (12, 10 + i * 22))
+        pg.display.flip()
+
+
 # -----------------------------------------------------------------------------
 # Picking and grabbing
 # -----------------------------------------------------------------------------
@@ -350,7 +412,7 @@ def make_chrono_safe_urdf(path):
 SCENES = {"go2": scene_go2, "arm": scene_arm, "place": scene_place}
 
 
-def main(mode, headless_script=None):
+def main(mode, headless_script=None, use_udp=False):
     system = chrono.ChSystemNSC()
     system.SetGravitationalAcceleration(chrono.ChVector3d(0, 0, -9.81))
     system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
@@ -381,7 +443,12 @@ def main(mode, headless_script=None):
     vis.AddCamera(chrono.ChVector3d(chase * 1.6, -chase * 2.0, chase * 1.1),
                   chrono.ChVector3d(0, 0, 0.3))
 
-    console = Console() if headless_script is None else None
+    if headless_script is not None:
+        console = None
+    elif use_udp:
+        console = Console()
+    else:
+        console = LocalInput()
     sel = 0
     held = False
     lift = 0.0          # ] / [ toggle the handle moving up / down in Z
@@ -408,7 +475,8 @@ def main(mode, headless_script=None):
             cmds = console.take_commands()
             if not seen_packet and console.addr is not None:
                 seen_packet = True
-                print(f"[udp] first packet from {console.addr[0]} - input is getting through")
+                if use_udp:
+                    print(f"[udp] first packet from {console.addr[0]} - input is getting through")
 
         for c in cmds:
             if c == "n":
@@ -471,12 +539,22 @@ def main(mode, headless_script=None):
                                                look.y - chase * 1.5,
                                                look.z + chase * 0.8), look)
             vis.BeginScene(); vis.Render(); vis.EndScene()
-            if console and n % (render_every * 10) == 0:
+            if console is not None:
                 b = grabbable[sel]
-                p = b.GetPos()
+                bp = b.GetPos()
                 f = grabber.force() if (grabber and held) else 0.0
-                console.send(f"{t:.3f},{p.x:.3f},{f:.3f},{p.z:.3f},{s:.3f},{th:.3f},{br:.3f},"
-                             f"{'HELD' if held else grabbable[sel].GetName()[:8]}")
+                if isinstance(console, LocalInput):
+                    console.draw([
+                        f"mode   {mode}      t {t:6.2f} s",
+                        f"sel    {b.GetName()}",
+                        f"state  {'HELD  spring %.0f N' % f if held else ('kinematic' if kinematic else 'not grabbed - press Z')}",
+                        f"pos    x {bp.x:+7.3f}  y {bp.y:+7.3f}  z {bp.z:+7.3f}",
+                        f"in     steer {s:+.2f}  thr {th:.2f}  brk {br:.2f}  lift {lift:+.0f}",
+                        "arrows move   [ ] up/down   Z grab   X select   T log   C reset",
+                    ])
+                elif n % (render_every * 10) == 0:
+                    console.send(f"{t:.3f},{bp.x:.3f},{f:.3f},{bp.z:.3f},{s:.3f},{th:.3f},{br:.3f},"
+                                 f"{'HELD' if held else b.GetName()[:8]}")
         system.DoStepDynamics(STEP)
         n += 1
 
@@ -487,9 +565,14 @@ def main(mode, headless_script=None):
 
 
 if __name__ == "__main__":
-    mode = sys.argv[1] if len(sys.argv) > 1 else "arm"
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    use_udp = "--udp" in sys.argv
+    mode = args[0] if args else "arm"
     if mode not in SCENES:
-        raise SystemExit(f"usage: python hil_manipulate.py [{' | '.join(SCENES)}]")
+        raise SystemExit(
+            f"usage: python hil_manipulate.py [{' | '.join(SCENES)}] [--udp]\n"
+            "  default: an input window opens alongside the 3D view, one command, one process\n"
+            "  --udp:   take input from operator_console.py in a second terminal instead")
     if mode == "go2":
         import os
         here = os.path.dirname(os.path.abspath(__file__))
@@ -501,4 +584,4 @@ if __name__ == "__main__":
                 "  git clone https://github.com/wty-yy/go2_rl_gym\n"
                 "  export GO2_URDF=go2_rl_gym/resources/robots/go2/urdf/go2.urdf")
         globals()["GO2_URDF"] = GO2_URDF
-    main(mode)
+    main(mode, use_udp=use_udp)

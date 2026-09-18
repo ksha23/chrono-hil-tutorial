@@ -316,13 +316,26 @@ all there, and `hil_manipulate.py` is the twenty lines that assemble them:
 Dragging with a spring instead of teleporting is the point: the body still
 collides, still carries momentum, and a controller holding it still fights back.
 
+One command, one process, two windows -- the 3D view and a small input panel:
+
 ```bash
 python hil_manipulate.py go2
 python hil_manipulate.py arm
 python hil_manipulate.py place
 ```
 
-and `python operator_console.py` in a second terminal to drive it.
+**Keep the input panel focused, not the 3D view.** PyChrono cannot read the
+Irrlicht window's keyboard at all (`irr::IEventReceiver` is exposed but abstract,
+SWIG directors are off), so the keys have to be read by something else -- but
+that something can live in the same process. pygame and Irrlicht coexist here
+quite happily; only the socket was ever needed.
+
+To drive it from `operator_console.py` in a second terminal instead, or from
+another machine, add `--udp`:
+
+```bash
+python hil_manipulate.py go2 --udp
+```
 
 | mode | what it shows |
 |---|---|
