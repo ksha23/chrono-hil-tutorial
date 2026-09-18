@@ -295,6 +295,26 @@ INPUT_SOURCE = "udp"
 REALTIME = "vehicle"      # falls back to "per_step" when there is no vehicle
 ```
 
+## The Go2's locomotion policy
+
+The quadruped is driven by a trained locomotion policy, not by a PD holding a
+pose. That is the difference between a robot that stiffens against a shove and
+one that picks a foot up and steps into it, and the push rig reports it as a
+number: the stance PD tips at 325 N, the policy at 1850 N.
+
+The checkpoint is third-party and not vendored here:
+
+```
+curl -sSL -o go2_assets/go2_policy.pt \
+  https://raw.githubusercontent.com/wty-yy/go2_rl_gym/HEAD/deploy/pre_train/go2/go2_cts_150k.pt
+```
+
+It needs `torch`; without either the checkpoint or torch the scene falls back to
+the stance PD and says so at startup. `GO2_POLICY_CKPT` overrides the path.
+
+From `wty-yy/go2_rl_gym` (MIT). A legged_gym-family actor: 45 observations in,
+12 joint targets out, run at 50 Hz over a PD at the physics rate.
+
 ## Part 9: reach into the scene (hil_manipulate.py)
 
 Parts 1-8 put a person in the *control* loop. This is the other thing people

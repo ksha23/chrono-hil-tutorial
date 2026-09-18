@@ -706,17 +706,12 @@ class Go2Policy:
              "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"]
     TO_POLICY = [9, 10, 11, 6, 7, 8, 3, 4, 5, 0, 1, 2]
     SIGN = -1.0
-    # THESE ARE NOT THE TRAINED GAINS AND THAT IS A KNOWN DEVIATION. Every
-    # legged_gym-family Go2 config specifies kp 20, kd 0.5, and that is what the
-    # checkpoint assumes. Measured on THIS plant, kp 20 cannot hold the policy's
-    # own stand pose: the joints sag 0.37 rad and the base settles at 0.24 m
-    # instead of ~0.30, so the first observation the policy gets is already off
-    # its training distribution and it crouches further from there. At kp 40 /
-    # kd 2 the same scripted stand holds to 0.14 rad at 0.29 m and the policy
-    # stands and steps. Raising the gains is a workaround for a plant mismatch,
-    # not a fix for it -- see the note on the checkpoint in find_go2_policy.
-    KP = float(os.environ.get("GO2_POLICY_KP", "40.0"))
-    KD = float(os.environ.get("GO2_POLICY_KD", "2.0"))
+    # The gains every legged_gym-family Go2 config specifies, and what this
+    # checkpoint assumes. Matching them is the point: a policy from that family
+    # assumes this actuator, so tuning them to suit a particular checkpoint
+    # would defeat the reason for having them.
+    KP = float(os.environ.get("GO2_POLICY_KP", "20.0"))
+    KD = float(os.environ.get("GO2_POLICY_KD", "0.5"))
     CTRL_DT = 0.02               # 50 Hz policy, decimation 4 over their 200 Hz PD
     ANG_VEL_SCALE = 0.25
     DOF_VEL_SCALE = 0.05
@@ -915,6 +910,17 @@ def scene_go2(system):
     if ckpt:
         try:
             system.stance_holders = [Go2Policy(system, p, ckpt)]
+            # A policy that catches itself does it with fast, hard joint moves,
+            # and the default 200 iterations cannot resolve the resulting
+            # contacts: past about 450 N of shove the solver goes non-finite
+            # instead of the robot falling over, which reads as "the demo
+            # crashed". At 600 it survives to 500 N and the cost is small --
+            # 8 s of sim goes from 1.4 s to 4.5 s of wall clock, still comfortably
+            # faster than real time. Beyond ~700 N it diverges again; that is a
+            # solver limit, not the policy failing, and it should be reported as one.
+            it = system.GetSolver().AsIterative()
+            if it:
+                it.SetMaxIterations(max(600, it.GetMaxIterations()))
             print(f"[go2] locomotion policy: {os.path.basename(ckpt)}")
             hint = "drag a leg; the policy steps to keep its feet"
         except Exception as exc:

@@ -96,11 +96,16 @@ N = {
     "panda_accel": "24,300 m/s^2",
     "yank_before": "35.14 m/s",
     "yank_after": "3.25 m/s",
-    # hil_push.py, Go2 on a PD stance controller, impulse at the base COM.
+    # hil_push.py, impulse at the base COM, 50 ms window. Same rig, same robot,
+    # two controllers: a PD holding a stance, and the trained locomotion policy.
     "push_fwd_ok": "325 N",
     "push_fwd_fail": "330 N",
     "push_lat_ok": "280 N",
     "push_lat_fail": "290 N",
+    "pol_fwd_ok": "1850 N",
+    "pol_fwd_fail": "1900 N",
+    "pol_lat_ok": "1100 N",
+    "pol_lat_fail": "1200 N",
     # The mouse layer, with and without the SWIG director.
     "lines_workaround": "135",
     "lines_native": "56",
@@ -656,8 +661,8 @@ def build(check_only=False):
     bullets("The four demos",
             ["1.  `Does the clock matter.` The same drive twice, paced and unpaced.",
              "2.  `A person driving.` Keyboard into a vehicle, the textbook case.",
-             "3.  `Reaching in.` Drag a quadruped's leg while its controller "
-             "resists, and a Franka arm with the motors on or off.",
+             "3.  `Reaching in.` Drag a quadruped's leg while a trained "
+             "locomotion policy fights you, and a Franka arm with the motors on or off.",
              "4.  `How hard can you shove it.` A measured impulse at a point you "
              "choose, and the magnitude where recovery stops."],
             shots=["hmmwv.png", "demo_go2.png", "demo_arm.png", "demo_push.png"])
@@ -1054,10 +1059,10 @@ def build(check_only=False):
                f"is `{N['panda_accel']}`: through the floor in a single step."])
 
     showtime("reaching in and pulling on a robot",
-             "click a link and drag it while its controller tries to hold position",
+             "click a link and drag it while its controller fights to stay standing",
              "human input as a FORCE rather than as driver inputs, which is how "
              "everything that is not a vehicle gets a person in its loop",
-             ["Drag a leg while the stance controller fights back",
+             ["Drag a leg while the locomotion policy steps to keep its feet",
               "Drag a Franka link, hand-guided or fully unactuated",
               "The same drag works on a 0.15 kg shin and a 2.7 kg arm link, "
               "because the spring is built from the mass it is pulling"],
@@ -1086,19 +1091,22 @@ def build(check_only=False):
 
     showtime("how hard can you shove it",
              "click where the push lands, set direction and magnitude, fire a "
-             "measured impulse, and see whether the controller holds",
+             "measured impulse, and find the magnitude where recovery stops",
              "robustness testing that produces a NUMBER, so the result can go in a "
              "report and somebody else can reproduce it",
-             [f"Forward at the base COM: `{N['push_fwd_ok']}` recovers, "
-              f"`{N['push_fwd_fail']}` does not",
-              f"Sideways: `{N['push_lat_ok']}` recovers, `{N['push_lat_fail']}` does not",
-              "Same impulse, applied 5 cm higher up the torso: the verdict flips",
-              "`What is holding it up matters.` Here it is a PD law holding a fixed "
-              "stance, not a learned policy. It stiffens and resists, and it cannot "
-              "take a step, so past the tipping point it simply topples.",
-              "That is a property of the CONTROLLER, not of the rig. Put a "
-              "locomotion policy behind the same joints and the rig measures that "
-              "instead, including whether it steps to catch itself."],
+             ["`The rig measures the controller.` Same robot, same push, same "
+              "50 ms window, two things holding it up:",
+              (f"a PD holding a stance: `{N['push_fwd_ok']}` recovers, "
+               f"`{N['push_fwd_fail']}` does not", 1),
+              (f"a trained locomotion policy: `{N['pol_fwd_ok']}` recovers, "
+               f"`{N['pol_fwd_fail']}` does not", 1),
+              f"Sideways is weaker for both: `{N['push_lat_ok']}`/"
+              f"`{N['push_lat_fail']}` for the stance, `{N['pol_lat_ok']}`/"
+              f"`{N['pol_lat_fail']}` for the policy.",
+              "The difference is that the stance can only stiffen. The policy "
+              "picks a foot up and steps into the shove, and will be carried five "
+              "metres doing it rather than fall over.",
+              "Same impulse, applied 5 cm higher up the torso: the verdict flips"],
              shots=["demo_push.png"],
              note=["That last line is the reason a human is still in this one. "
                    "Where to push is a judgement call, and it changes the answer "
