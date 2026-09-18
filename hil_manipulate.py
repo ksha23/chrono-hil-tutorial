@@ -344,6 +344,34 @@ def pick_along_ray(system, start, end):
             chrono.ChVector3d(nrm.x, nrm.y, nrm.z))
 
 
+def pick_near_ray(bodies, origin, direction, tol=0.06):
+    """Pick the body whose centre lies closest along a ray, within `tol` metres.
+
+    Picking by collision raycast ties what you can CLICK to what has contact
+    geometry, and those are different questions. The Go2's thighs and calves
+    deliberately have no collision -- their URDF cylinders run the full length of
+    the limb and make the robot stand on its shins -- but they are exactly the
+    parts a user wants to grab. Masking them out of contacts does not help either:
+    a body with an empty collision mask is not raycast-hittable at all (measured).
+
+    So: geometry-free picking. It is also more forgiving, which matters when the
+    target is a 4 cm calf seen from three metres away.
+    """
+    best = None
+    for b in bodies:
+        c = b.GetPos()
+        w = chrono.ChVector3d(c.x - origin.x, c.y - origin.y, c.z - origin.z)
+        along = w.x * direction.x + w.y * direction.y + w.z * direction.z
+        if along <= 0:
+            continue                      # behind the camera
+        perp = (w - direction * along).Length()
+        if perp <= tol and (best is None or along < best[0]):
+            best = (along, b, chrono.ChVector3d(c.x, c.y, c.z))
+    if best is None:
+        return None
+    return best[1], best[2], chrono.ChVector3d(0, 0, 1)
+
+
 def pick_at_crosshair(system, vis, reach=50.0):
     """Ray from the camera through the centre of the view. With a wrapped mouse
     this would be getRayFromScreenCoordinates(cursor) instead; the rest is the same."""
@@ -525,17 +553,25 @@ class FreeDriveJoint:
     mode, and it is what "move the arm by hand" needs.
     """
 
-    KP = 240.0     # N.m per rad -- enough to carry the arm's own weight
-    KD = 14.0      # N.m per rad/s
+    KP = 400.0     # N.m per rad -- enough to carry the arm's own weight
+    KD = 16.0      # N.m per rad/s
     TAU_MAX = 87.0  # N.m, the Panda's largest joint limit
-    FOLLOW = 0.0035  # per step: how fast the rest pose creeps to where you hold it
+    FOLLOW = 0.004  # per step, and ONLY while something is being held
+
+    # A rest pose that always creeps toward the actual angle droops: gravity
+    # walks the arm down and the target follows it. One that never creeps springs
+    # back and cannot be posed. Real hand-guiding resolves this by being a MODE:
+    # the arm complies while you have hold of it and locks the instant you let
+    # go. The loop sets this while the grabber holds something.
+    guiding = False
 
     def __init__(self, motor, fn, target):
         self.motor, self.fn, self.target = motor, fn, target
 
     def update(self):
         q = self.motor.GetMotorAngle()
-        self.target += (q - self.target) * self.FOLLOW
+        if FreeDriveJoint.guiding:
+            self.target += (q - self.target) * self.FOLLOW
         tau = self.KP * (self.target - q) - self.KD * self.motor.GetMotorAngleDt()
         self.fn.SetConstant(max(-self.TAU_MAX, min(self.TAU_MAX, tau)))
 
@@ -681,6 +717,21 @@ def scene_arm(system):
     root = p.GetRootChBody()
     if root:
         root.SetFixed(True)          # bolt the base down
+
+    # ChParserURDF builds collision models but leaves collision DISABLED, and
+    # picking is a raycast against collision geometry -- so with this missing the
+    # arm cannot be clicked at all and every drag is silently ignored. Same trap
+    # as the Go2. Self-collision is masked off because consecutive links overlap
+    # at their shared joint.
+    ARM_FAMILY = 3
+    for b in system.GetBodies():
+        if b.IsFixed() or not b.GetName().startswith("panda"):
+            continue
+        b.EnableCollision(True)
+        cm = b.GetCollisionModel()
+        if cm:
+            cm.SetFamily(ARM_FAMILY)
+            cm.SetFamilyMask(~(1 << ARM_FAMILY) & 0x7FFF)
 
     # Pure damping on every actuated joint. Without it the arm is a 7-link
     # pendulum and never settles.
@@ -932,6 +983,11 @@ def main(mode, headless_script=None, use_udp=False):
                 r = console.ray_through(*at)
                 if r:
                     got = pick_along_ray(system, r[0], r[1])
+                    if got and got[0] not in grabbable:
+                        got = None       # hit the floor or something unpickable
+                    if got is None:
+                        d0 = r[1] - r[0]
+                        got = pick_near_ray(grabbable, r[0], d0 / d0.Length())
                     if got:
                         body, point, normal = got
                         if body is not grabber.handle:
@@ -1030,6 +1086,7 @@ def main(mode, headless_script=None, use_udp=False):
                 elif n % (render_every * 10) == 0:
                     console.send(f"{t:.3f},{bp.x:.3f},{f:.3f},{bp.z:.3f},{s:.3f},{th:.3f},{br:.3f},"
                                  f"{'HELD' if held else b.GetName()[:8]}")
+        FreeDriveJoint.guiding = held
         for h in getattr(system, "stance_holders", ()):
             h.update()
         system.DoStepDynamics(STEP)

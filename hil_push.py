@@ -273,6 +273,7 @@ class RecoveryMonitor:
 
     def reset(self):
         self.armed = False
+        self.frozen = False
         self.record = None
         self.trace = []
         self.good_since = None
@@ -282,6 +283,7 @@ class RecoveryMonitor:
         p = cfg.world_point()
         d = cfg.direction()
         self.armed = True
+        self.frozen = False
         self.good_since = None
         self.trace = []
         self.record = {
@@ -295,7 +297,8 @@ class RecoveryMonitor:
             "z0": z, "up0": up, "x0": x, "y0": y,
             "eval_from": t + cfg.duration,
             "peak_dz": 0.0, "min_z": z, "min_upright": up, "peak_speed": 0.0,
-            "drift_m": 0.0, "recovery_s": None, "verdict": "PUSHING",
+            "drift_m": 0.0, "peak_drift_m": 0.0,
+            "recovery_s": None, "verdict": "PUSHING",
         }
         return self.record
 
@@ -307,11 +310,17 @@ class RecoveryMonitor:
         z, up, spd, x, y = base_state(self.base)
         dt = t - r["t_fire"]
         drift = math.hypot(x - r["x0"], y - r["y0"])
+        # Past the verdict the trace keeps growing but the summary numbers do
+        # not, so the reported peak always belongs to the window that was judged.
+        if self.frozen:
+            self.trace.append((dt, z, up, spd, drift))
+            return None
         r["peak_dz"] = max(r["peak_dz"], abs(z - r["z0"]))
         r["min_z"] = min(r["min_z"], z)
         r["min_upright"] = min(r["min_upright"], up)
         r["peak_speed"] = max(r["peak_speed"], spd)
-        r["drift_m"] = drift
+        r["drift_m"] = drift                      # where it ended up
+        r["peak_drift_m"] = max(r["peak_drift_m"], drift)   # how far it got
         self.trace.append((dt, z, up, spd, drift))
 
         if r["verdict"] not in ("PUSHING", "RECOVERING"):
@@ -340,7 +349,8 @@ class RecoveryMonitor:
         return None
 
     def busy(self):
-        return self.armed and self.record["verdict"] in ("PUSHING", "RECOVERING")
+        return (self.armed and not self.frozen
+                and self.record["verdict"] in ("PUSHING", "RECOVERING"))
 
 
 # -----------------------------------------------------------------------------
@@ -363,14 +373,28 @@ def restore(system, snap):
         b.SetPosDt(chrono.ChVector3d(zero))
         b.SetAngVelParent(chrono.ChVector3d(zero))
         b.SetPosDt2(chrono.ChVector3d(zero))
+    # Poses and velocities are not all of the state.  The contact container is
+    # carrying the contacts from whatever the robot was doing a moment ago, and
+    # the NSC solver warm-starts from the impulses cached against them.
+    system.GetContactContainer().RemoveAllContacts()
+    # There is one more layer of history underneath that this cannot reach.
+    # Bullet's persistent manifolds hold the cached impulses, and the only call
+    # that would clear them, system.GetCollisionSystem().Clear(), SEGFAULTS: it
+    # drops the collision models out of the world and nothing rebinds them.  Do
+    # not try it again.  What is left is a residual push-to-push variation of
+    # about 10 percent on the deviation metrics, quantified in PushRig.settle.
     system.Update()
 
 
 # -----------------------------------------------------------------------------
 # The rig: system + robot + pusher + monitor, shared by every entry point
 # -----------------------------------------------------------------------------
+WARMUP = 1        # reset cycles before the first push; see PushRig.settle
+
+
 class PushRig:
-    def __init__(self, urdf=None, z_tol=0.04, up_tol=0.90, timeout=6.0):
+    def __init__(self, urdf=None, z_tol=0.04, up_tol=0.90, timeout=6.0,
+                 warmup=WARMUP):
         H.GO2_URDF = urdf or os.environ.get(
             "GO2_URDF", os.path.join(HERE, "go2_assets/urdf/go2.urdf"))
         if not os.path.exists(H.GO2_URDF):
@@ -390,6 +414,7 @@ class PushRig:
         system.GetSolver().AsIterative().SetMaxIterations(200)
 
         self.system = system
+        self.warmup = warmup
         self.pickable, self.chase, self.hint, self.base = H.scene_go2(system)
         self.pusher = Pusher()
         self.monitor = RecoveryMonitor(self.base, z_tol=z_tol, up_tol=up_tol,
@@ -413,11 +438,41 @@ class PushRig:
             h.update()
         self.system.DoStepDynamics(STEP)
 
-    def settle(self, seconds=SETTLE):
-        for _ in range(int(round(seconds / STEP))):
-            self.step()
+    def settle(self, seconds=SETTLE, warmup=None):
+        """Stand still, take the reference state, then normalise onto it.
+
+        The trailing reset() is not redundant: reset() is restore-then-resettle,
+        and resettling from a restored state lands a millimetre or two from the
+        raw snapshot, so without a cycle here the FIRST push of a session would
+        start from a different pose than every later one.
+
+        HOW REPEATABLE THIS ACTUALLY IS, measured rather than assumed.  Hash
+        every non-fixed body's pose and velocity plus every motor angle just
+        before firing and it is BIT-IDENTICAL on every push of a session.  The
+        outcome still is not.  The same 300 N push comes out as either
+
+            peak dz 2.46 cm   min upright 0.940   recovery 0.94 s
+            peak dz 2.16 cm   min upright 0.953   recovery 0.89 s
+
+        and which one you get depends on how many pushes came before.  That
+        residual is Bullet's persistent manifolds: they cache the contact
+        impulses the NSC solver warm-starts from, they are not part of any state
+        Python can see or reset (restore() says why), and they carry a little of
+        the last push into the next one.  It is worth about 10 percent on the
+        deviation metrics and about 0.05 s on the recovery time.  Away from the
+        edge that is cosmetic.  AT the edge it is not: 334 N recovered 2 times
+        out of 5 from a bit-identical start.  That is why --sweep takes --trials
+        and reports a pass RATE, and why the threshold below is quoted as a band
+        rather than a number.  A single-sample bisection down to the newton
+        would have been a made-up number, and it looked like a real one.
+        """
+        warmup = self.warmup if warmup is None else warmup
         if self.snap is None:
+            for _ in range(int(round(seconds / STEP))):
+                self.step()
             self.snap = snapshot(self.system)
+        for _ in range(max(1, warmup)):
+            self.reset(resettle=seconds)
 
     def reset(self, resettle=SETTLE):
         """Back to the standing pose, so the next push starts from the same state."""
@@ -440,7 +495,7 @@ class PushRig:
         if done is not None:
             self.records.append(done)
             print(f"[{done['verdict'].lower()}] {summarize(done)}")
-            self.monitor.armed = False
+            self.monitor.frozen = True     # verdict is in; the trace goes on
         return done
 
     def standing(self):
@@ -452,14 +507,15 @@ def summarize(r):
     rec = "n/a" if r["recovery_s"] is None else f"{r['recovery_s']:.2f} s"
     return (f"{r['magnitude_N']:.0f} N / {r['impulse_Ns']:.2f} N.s  "
             f"peak dz {r['peak_dz']*100:.1f} cm  min upright {r['min_upright']:.3f}  "
-            f"peak speed {r['peak_speed']:.2f} m/s  drift {r['drift_m']*100:.1f} cm  "
+            f"peak speed {r['peak_speed']:.2f} m/s  "
+            f"drift {r['peak_drift_m']*100:.1f} cm peak / {r['drift_m']*100:.1f} cm final  "
             f"recovery {rec}")
 
 
 LOG_FIELDS = ["t_fire", "body", "px", "py", "pz", "dx", "dy", "dz",
               "azimuth", "elevation", "magnitude_N", "duration_s", "impulse_Ns",
               "z0", "up0", "peak_dz", "min_z", "min_upright", "peak_speed",
-              "drift_m", "recovery_s", "verdict"]
+              "drift_m", "peak_drift_m", "recovery_s", "verdict"]
 
 
 def log_record(path, r):
@@ -484,8 +540,8 @@ def write_trace(path, trace):
 # Headless: scripted pushes, no windows, numbers on stdout
 # -----------------------------------------------------------------------------
 def run_headless(rig, mag, direction, duration, point=None, trace_path=None,
-                 log_path=None, quiet=False, max_wait=8.0):
-    """One push, run to a verdict. Returns the record."""
+                 log_path=None, quiet=False, max_wait=8.0, watch=0.0):
+    """One push, run to a verdict, then traced for `watch` more seconds."""
     rig.cfg.magnitude = mag
     rig.cfg.duration = duration
     rig.cfg.set_direction(*direction)
@@ -513,8 +569,17 @@ def run_headless(rig, mag, direction, duration, point=None, trace_path=None,
         done["verdict"] = "FAILED"
         z, up, _, _, _ = base_state(rig.base)
         done["final_z"], done["final_upright"] = z, up
+        rig.monitor.frozen = True
         rig.records.append(done)
         print(f"[failed] {summarize(done)}")
+    # Keep watching past the verdict: a recovery that is declared at 0.9 s and
+    # then falls over at 2 s is a thing a plot has to be able to show.
+    t_watch = done["t_fire"] + watch
+    while rig.t() < t_watch:
+        rig.step()
+        n += 1
+        if n % every == 0:
+            rig.sample()
     if log_path:
         log_record(log_path, done)
     if trace_path:
@@ -535,79 +600,117 @@ def print_trace(trace, step=0.25, until=4.0):
         nxt += step
 
 
+def evaluate(rig, mag, direction, args, point, trials):
+    """Fire the same push `trials` times. Returns (n_recovered, trials, records).
+
+    Trials, not one shot.  Right at the edge the same push from a bit-identical
+    start goes both ways (PushRig.settle has the measurement), so a single
+    sample there is a coin flip dressed up as a measurement.
+    """
+    got = []
+    for _ in range(trials):
+        rig.reset()
+        got.append(run_headless(rig, mag, direction, args.dur, point=point,
+                                log_path=args.log, quiet=True,
+                                max_wait=args.timeout + 1.0))
+    return sum(1 for r in got if r["verdict"] == "RECOVERED"), trials, got
+
+
+def sweep_row(mag, dur, n_ok, n, got):
+    """One line of the sweep table: the worst trial, plus the pass rate."""
+    worst = min(got, key=lambda r: r["min_upright"])
+    recs = [r["recovery_s"] for r in got if r["recovery_s"] is not None]
+    rec = "   --   " if not recs else (f"{min(recs):6.2f}  " if len(recs) == 1
+                                       else f"{min(recs):.2f}-{max(recs):.2f}")
+    verdict = ("RECOVERED" if n_ok == n else
+               "FAILED" if n_ok == 0 else f"MIXED {n_ok}/{n}")
+    print(f"{mag:6.0f} {mag*dur:7.2f} {worst['peak_dz']*100:8.1f}cm "
+          f"{worst['min_upright']:8.3f} {worst['peak_drift_m']*100:7.1f}cm "
+          f"{rec:>8}  {n_ok}/{n}  {verdict}")
+
+
 def run_sweep(args):
-    """Escalating magnitudes until the controller loses, then bisect the edge."""
+    """Escalating magnitudes until the controller loses, then squeeze the edge."""
     lo, hi, stepn = (float(v) for v in args.sweep.split(":"))
     rig = PushRig(urdf=args.urdf, z_tol=args.z_tol, up_tol=args.up_tol,
                   timeout=args.timeout)
     rig.settle()
     direction = parse_dir(args.dir)
     point = parse_point(args.point)
+    trials = max(1, args.trials)
     print(f"\n[rig] Go2 from URDF, {rig.mass:.2f} kg total, stance PD holding it up")
     z, up, spd = rig.standing()
     print(f"[rig] settled at base z {z:.4f} m, uprightness {up:.4f}\n")
     print(f"sweeping {lo:.0f}:{hi:.0f}:{stepn:.0f} N for {args.dur*1000:.0f} ms, "
-          f"direction {direction}, at {'base COM' if point is None else point}\n")
+          f"{trials} trial(s) each, direction {direction}, "
+          f"at {'base COM' if point is None else point}")
+    print("(peak dz / min up / drift are the WORST trial at that magnitude)\n")
     header = (f"{'N':>6} {'N.s':>7} {'peak dz':>9} {'min up':>8} {'drift':>8} "
-              f"{'recov':>8}  verdict")
+              f"{'recov':>8}  rate  verdict")
     print(header)
     print("-" * len(header))
 
     results = []
-    last_ok, first_bad = None, None
+    always_ok, first_loss, always_bad = None, None, None
     mag = lo
     while mag <= hi + 1e-6:
-        rig.reset()
-        r = run_headless(rig, mag, direction, args.dur, point=point,
-                         log_path=args.log, quiet=True, max_wait=args.timeout + 1.0)
-        results.append(r)
-        rec = "  --  " if r["recovery_s"] is None else f"{r['recovery_s']:6.2f}"
-        print(f"{mag:6.0f} {r['impulse_Ns']:7.2f} {r['peak_dz']*100:8.1f}cm "
-              f"{r['min_upright']:8.3f} {r['drift_m']*100:7.1f}cm {rec}  "
-              f"{r['verdict']}")
-        if r["verdict"] == "RECOVERED":
-            last_ok = mag
-        elif first_bad is None:
-            first_bad = mag
+        n_ok, n, got = evaluate(rig, mag, direction, args, point, trials)
+        results.extend(got)
+        sweep_row(mag, args.dur, n_ok, n, got)
+        if n_ok == n and first_loss is None:
+            always_ok = mag
+        if n_ok < n and first_loss is None:
+            first_loss = mag
+        if n_ok == 0 and always_bad is None:
+            always_bad = mag
             if not args.full:
                 break
         mag += stepn
 
-    if first_bad is None:
+    if first_loss is None:
         print(f"\nno failure up to {hi:.0f} N ({hi*args.dur:.2f} N.s). "
               "raise the top of the sweep.")
         return rig, results, None
 
-    threshold = first_bad
-    if args.refine and last_ok is not None:
-        a, b = last_ok, first_bad
-        print(f"\nbisecting between {a:.0f} N (recovered) and {b:.0f} N (fell)")
+    # The bracket to squeeze is [always recovers, always falls], and both ends
+    # have to be believed at `trials` samples before the bisection means anything.
+    a = always_ok
+    b = always_bad if always_bad is not None else first_loss
+    if args.refine and a is not None:
+        print(f"\nbisecting between {a:.0f} N ({trials}/{trials} recovered) and "
+              f"{b:.0f} N (0/{trials} recovered)")
         for _ in range(args.refine_steps):
             if b - a <= args.refine_tol:
                 break
             mid = 0.5 * (a + b)
-            rig.reset()
-            r = run_headless(rig, mid, direction, args.dur, point=point,
-                             log_path=args.log, quiet=True,
-                             max_wait=args.timeout + 1.0)
-            results.append(r)
-            rec = "  --  " if r["recovery_s"] is None else f"{r['recovery_s']:6.2f}"
-            print(f"{mid:6.0f} {r['impulse_Ns']:7.2f} {r['peak_dz']*100:8.1f}cm "
-                  f"{r['min_upright']:8.3f} {r['drift_m']*100:7.1f}cm {rec}  "
-                  f"{r['verdict']}")
-            if r["verdict"] == "RECOVERED":
+            n_ok, n, got = evaluate(rig, mid, direction, args, point, trials)
+            results.extend(got)
+            sweep_row(mid, args.dur, n_ok, n, got)
+            if n_ok == n:
                 a = mid
-            else:
+            elif n_ok == 0:
                 b = mid
-        threshold = b
-        print(f"\nRECOVERY THRESHOLD: recovers at {a:.0f} N ({a*args.dur:.2f} N.s), "
-              f"falls at {b:.0f} N ({b*args.dur:.2f} N.s)")
-    else:
-        print(f"\nRECOVERY THRESHOLD: last recovery {last_ok} N, "
-              f"first failure {first_bad:.0f} N ({first_bad*args.dur:.2f} N.s)")
+            else:
+                # A mixed result IS the answer: this is the edge, and no amount
+                # of further bisection makes it a sharper number.
+                print(f"\nRECOVERY THRESHOLD is a BAND, not a number.\n"
+                      f"  always recovers  <= {a:.0f} N ({a*args.dur:.2f} N.s)\n"
+                      f"  coin flip        at {mid:.0f} N ({mid*args.dur:.2f} N.s), "
+                      f"{n_ok}/{n} recovered\n"
+                      f"  always falls     >= {b:.0f} N ({b*args.dur:.2f} N.s)")
+                if args.log:
+                    print(f"[log] {args.log}")
+                return rig, results, (a, b)
+
+    print(f"\nRECOVERY THRESHOLD: always recovers at {a:.0f} N "
+          f"({(a or 0)*args.dur:.2f} N.s), always falls at {b:.0f} N "
+          f"({b*args.dur:.2f} N.s)")
+    if trials == 1:
+        print("  (one trial per magnitude -- rerun with --trials 5 before "
+              "quoting this to anyone)")
     if args.log:
         print(f"[log] {args.log}")
-    return rig, results, threshold
+    return rig, results, (a, b)
 
 
 # -----------------------------------------------------------------------------
@@ -1063,6 +1166,8 @@ def build_parser():
                    help="no windows: fire one scripted push and print the trace")
     p.add_argument("--sweep", metavar="LO:HI:STEP",
                    help="headless magnitude sweep, e.g. 60:420:60")
+    p.add_argument("--trials", type=int, default=1,
+                   help="sweep: repeats per magnitude, reported as a pass rate")
     p.add_argument("--refine", action="store_true",
                    help="bisect between the last recovery and the first failure")
     p.add_argument("--refine-steps", type=int, default=5)
@@ -1077,6 +1182,8 @@ def build_parser():
                    help="world x,y,z for the application point (headless)")
     p.add_argument("--repeat", type=int, default=1,
                    help="headless: fire the same push N times, resetting between")
+    p.add_argument("--watch", type=float, default=3.0,
+                   help="s to keep tracing after the verdict (headless)")
     p.add_argument("--trace", default=None, help="CSV of the recovery trace")
     p.add_argument("--log", default=os.path.join(HERE, "push_log.csv"))
     p.add_argument("--no-panel", action="store_true",
@@ -1105,21 +1212,41 @@ def main(argv=None):
         print(f"\n[rig] Go2 from URDF, {rig.mass:.2f} kg total")
         direction = parse_dir(args.dir)
         point = parse_point(args.point)
+        got = []
         for i in range(args.repeat):
             if i:
                 rig.reset()
             print(f"\n--- push {i+1}/{args.repeat} ---")
             r = run_headless(rig, args.mag, direction, args.dur, point=point,
                              trace_path=args.trace if i == 0 else None,
-                             log_path=args.log, max_wait=args.timeout + 1.0)
-            print_trace(rig.monitor.trace)
+                             log_path=args.log, max_wait=args.timeout + 1.0,
+                             watch=args.watch)
+            print_trace(rig.monitor.trace, until=max(args.watch, 2.0))
             print(f"  verdict {r['verdict']}   "
                   f"impulse {r['impulse_Ns']:.2f} N.s   "
                   f"peak dz {r['peak_dz']*100:.1f} cm   "
                   f"min upright {r['min_upright']:.3f}   "
-                  f"drift {r['drift_m']*100:.1f} cm   "
+                  f"peak drift {r['peak_drift_m']*100:.1f} cm   "
                   + ("recovery n/a" if r["recovery_s"] is None
                      else f"recovery {r['recovery_s']:.2f} s"))
+            got.append(r)
+        if len(got) > 1:
+            print(f"\nrepeatability over {len(got)} identical pushes "
+                  "(the band to quote, not the single number):")
+            verdicts = {r["verdict"] for r in got}
+            for key, label, scale, unit in (
+                    ("peak_dz", "peak dz", 100.0, "cm"),
+                    ("min_upright", "min upright", 1.0, ""),
+                    ("peak_drift_m", "peak drift", 100.0, "cm"),
+                    ("drift_m", "final drift", 100.0, "cm"),
+                    ("recovery_s", "recovery", 1.0, "s")):
+                vals = [r[key] * scale for r in got if r[key] is not None]
+                if not vals:
+                    continue
+                print(f"  {label:<12} {min(vals):7.3f} .. {max(vals):7.3f} {unit}"
+                      f"   spread {max(vals)-min(vals):.3f}")
+            print(f"  verdict      {'/'.join(sorted(verdicts))}"
+                  f"{'   <-- NOT STABLE, this magnitude is on the edge' if len(verdicts) > 1 else ''}")
         print(f"\n[log] {args.log}")
         return
 
