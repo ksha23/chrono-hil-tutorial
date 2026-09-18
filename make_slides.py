@@ -364,6 +364,24 @@ def label(slide, x, y, w, text, size=14, align=PP_ALIGN.CENTER, color=None):
     return tb
 
 
+def place_side_shot(slide, path, note, left=7.95, top=1.62):
+    """One figure down the right-hand side, scaled to fill that column.
+
+    A single portrait-ish image under a short bullet list wastes the whole
+    right half of the slide and comes out postage-stamp sized. Beside the text
+    it gets two to three times the area for free. Wide-and-short images are the
+    exception and stay below, where they can use the full width.
+    """
+    from PIL import Image as _Im
+    iw, ih = _Im.open(path).size
+    box_w = 13.33 - left - 0.43
+    box_h = (5.90 if note else 6.95) - top
+    scale = min(box_w / iw, box_h / ih)
+    w, h = iw * scale, ih * scale
+    slide.shapes.add_picture(path, Inches(left + (box_w - w) / 2.0),
+                             Inches(top + (box_h - h) / 2.0), Inches(w), Inches(h))
+
+
 def place_shots(slide, shots, top=3.15, height=2.55):
     """A centred row of screenshots in the space the bullets do not use.
 
@@ -474,10 +492,31 @@ def build(check_only=False):
                 break
         tf = body.text_frame
         tf.word_wrap = True
-        # Rough line budget: a 20pt bullet wraps at about 78 characters in the
-        # content placeholder, and the slide holds roughly 13 such lines above
-        # the note. Shrink rather than overflow.
-        est = sum(1 + len(it[0] if isinstance(it, tuple) else it) // 72
+        # One figure that is not wide-and-short goes beside the text, which
+        # means the text column narrows and every bullet wraps sooner.
+        side_path = None
+        if shots:
+            paths = [os.path.join(IMAGES, f) for f in shots]
+            paths = [q for q in paths if os.path.exists(q)]
+            if len(paths) == 1:
+                from PIL import Image as _Im
+                iw, ih = _Im.open(paths[0]).size
+                if iw / float(ih) < 2.2:
+                    side_path = paths[0]
+        body_w = 7.05 if side_path else 11.96
+        # Setting width alone on an INHERITED placeholder makes python-pptx
+        # write a partial xfrm, and the position collapses to the slide origin:
+        # the bullets end up on top of the title. Pin all four, reading the
+        # inherited values first.
+        bl, bt, bh = body.left, body.top, body.height
+        body.left, body.top, body.height = bl, bt, bh
+        body.width = Inches(body_w)
+        # Rough line budget: a 20pt bullet wraps at about 72 characters across
+        # the full-width placeholder, proportionally fewer in a narrow column,
+        # and the slide holds roughly 13 such lines above the note. Shrink
+        # rather than overflow.
+        per_line = max(26, int(72 * body_w / 11.96))
+        est = sum(1 + len(it[0] if isinstance(it, tuple) else it) // per_line
                   for it in items)
         while size > 13 and est > (13 if not note else 11) * (20.0 / size):
             size -= 1
@@ -491,7 +530,9 @@ def build(check_only=False):
                 rich(par, text, size - 2 * lvl)
             else:
                 rich(par, item, size)
-        if shots:
+        if side_path:
+            place_side_shot(s, side_path, note)
+        elif shots:
             # Put the figure under the text, not on top of it. Text starts at
             # 1.44 in; a line costs size*1.25 pt plus the paragraph gap.
             text_bottom = 1.44 + est * (size * 1.25) / 72.0 + len(items) * gap / 72.0
