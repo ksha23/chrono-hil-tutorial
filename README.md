@@ -328,6 +328,17 @@ python hil_manipulate.py place
 drag to pull it, release to let go. Arrow keys and `Z`/`X`/`C`/`T` work there too,
 whichever window has focus.
 
+The mouse does nothing but manipulate. `AddCamera` builds an `RTSCamera`, which
+normally takes the mouse for orbit/pan/zoom, so a drag moved the body *and* swung
+the view. Its input receiver is switched off, and the camera is on keys instead:
+
+| keys | |
+|---|---|
+| mouse drag | grab and pull a body |
+| arrows, `[` `]` | move the grab handle (X/Y, then Z) |
+| `Z` `X` `C` `T` | grab/release, cycle selection, reset, log pose |
+| `A` `D` / `W` `S` / `R` `F` | camera orbit / zoom / height |
+
 PyChrono genuinely cannot read that window: SWIG directors are off so
 `irr::IEventReceiver` cannot be subclassed, and `getCursorControl()` and
 `getSceneCollisionManager()` both come back as unwrapped `SwigPyObject`s. But the

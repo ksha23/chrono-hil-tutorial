@@ -192,7 +192,9 @@ class DirectInput:
 
     # macOS virtual key codes
     K = {"left": 123, "right": 124, "down": 125, "up": 126,
-         "z": 6, "x": 7, "c": 8, "t": 17, "lbracket": 33, "rbracket": 30}
+         "z": 6, "x": 7, "c": 8, "t": 17, "lbracket": 33, "rbracket": 30,
+         # camera, deliberately on keys so the mouse stays free for grabbing
+         "a": 0, "d": 2, "w": 13, "s": 1, "r": 15, "f": 3}
     EDGE = {"z": "f", "x": "n", "c": "r", "t": "m", "rbracket": "u", "lbracket": "d"}
 
     def __init__(self, vis, title, content_w, content_h):
@@ -293,6 +295,12 @@ class DirectInput:
     def take_commands(self):
         c, self.commands = self.commands, []
         return c
+
+    def camera_nudge(self):
+        """(orbit, zoom, rise) from A/D, W/S, R/F -- held, not edge-triggered."""
+        return ((-1.0 if self._key("a") else 0.0) + (1.0 if self._key("d") else 0.0),
+                (-1.0 if self._key("w") else 0.0) + (1.0 if self._key("s") else 0.0),
+                (-1.0 if self._key("f") else 0.0) + (1.0 if self._key("r") else 0.0))
 
     def send(self, text):
         pass
@@ -556,6 +564,7 @@ def main(mode, headless_script=None, use_udp=False):
     grabbable, chase, hint, anchor = SCENES[mode](system)
     ap = anchor.GetPos()
     cam_t = [ap.x, ap.y, ap.z]
+    cam_az, cam_r, cam_h = [0.55], [1.75], [chase * 0.8]   # orbit, distance, height
     kinematic = (mode == "place")
     grabber = None if kinematic else Grabber(system)
 
@@ -571,6 +580,12 @@ def main(mode, headless_script=None, use_udp=False):
     vis.AddSkyBox()
     vis.AddCamera(chrono.ChVector3d(chase * 1.6, -chase * 2.0, chase * 1.1),
                   chrono.ChVector3d(0, 0, 0.3))
+    # AddCamera builds an RTSCamera, which grabs the mouse for orbit/pan/zoom --
+    # so a drag moved the body AND swung the view, and the follow code below was
+    # fighting it for the camera every frame. The mouse belongs to manipulation
+    # here; the camera follows the subject on its own. RTSCamera::OnEvent returns
+    # immediately once its input receiver is off.
+    vis.GetActiveCamera().setInputReceiverEnabled(False)
 
     if headless_script is not None:
         console = None
@@ -590,7 +605,9 @@ def main(mode, headless_script=None, use_udp=False):
     system.DoStepDynamics(STEP)          # the collision system must exist to raycast
 
     print(f"\n{hint}")
-    print("  arrows move  |  [ ] up/down  |  Z grab/release  |  X select  |  T log pose  |  C reset\n")
+    print("  MOUSE on the 3D view: press to grab, drag to pull, release to drop\n"
+          "  arrows move   [ ] up/down   Z grab   X select   T log   C reset\n"
+          "  camera (mouse is not used for it): A/D orbit   W/S zoom   R/F height\n")
 
     render_every = max(1, int(round(1.0 / (RENDER_FPS * STEP))))
     fired = set()
@@ -697,9 +714,15 @@ def main(mode, headless_script=None, use_udp=False):
             cam_t[1] += (a.y - cam_t[1]) * 0.08
             cam_t[2] += (a.z - cam_t[2]) * 0.08
             look = chrono.ChVector3d(*cam_t)
-            vis.UpdateCamera(chrono.ChVector3d(look.x + chase * 0.9,
-                                               look.y - chase * 1.5,
-                                               look.z + chase * 0.8), look)
+            if console is not None and hasattr(console, "camera_nudge"):
+                orb, zoom, rise = console.camera_nudge()
+                cam_az[0] += orb * 1.4 * render_every * STEP
+                cam_r[0] = max(0.25, cam_r[0] * (1.0 + zoom * 1.2 * render_every * STEP))
+                cam_h[0] = max(0.05, cam_h[0] + rise * 1.2 * render_every * STEP * chase)
+            d = chase * cam_r[0]
+            vis.UpdateCamera(chrono.ChVector3d(look.x + d * math.sin(cam_az[0]),
+                                               look.y - d * math.cos(cam_az[0]),
+                                               look.z + cam_h[0]), look)
             vis.BeginScene(); vis.Render(); vis.EndScene()
             if console is not None:
                 b = grabbable[sel]
