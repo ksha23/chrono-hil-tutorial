@@ -46,281 +46,155 @@ Every script takes `--help`. The switches for demos 1 and 2 live in the
 
 ## Setup
 
-```bash
-conda create -n chrono_hil -c conda-forge projectchrono::pychrono pygame python=3.13
-conda activate chrono_hil
-```
+`environment.yml` pins the right packages. If you build an environment by hand
+instead, there are two ways to end up with a PyChrono that cannot run this,
+both of which install without an error:
 
-Two ways to end up with a PyChrono that cannot run this tutorial, both of which
-install without an error message:
+- **`pip install pychrono`** is an unrelated PyPI package of the same name.
+- **conda-forge also publishes `pychrono` 10.0.0**, and it is a different
+  package: 4.7 MB against 498 MB, with only `core`, `fea` and `robot`. This
+  tutorial needs `pychrono.vehicle` and `pychrono.irrlicht`. Same name, same
+  version, no warning. The `projectchrono` channel is what pins the right one.
 
-- **`pip install pychrono`** installs an unrelated PyPI package of the same name.
-- **conda-forge also publishes a `pychrono` 10.0.0**, and it is a different
-  package: 4.7 MB against 498 MB, shipping only `core`, `fea` and `robot`. This
-  tutorial imports `pychrono.vehicle` and `pychrono.irrlicht`, and neither is in
-  it, so it fails on the first import. Same name, same version number, no
-  warning. The `projectchrono::` prefix above is what pins the right one --
-  without it, listing `-c conda-forge` first is enough to get the wrong one.
-
-Check what you got with `python -c "import pychrono.vehicle, pychrono.irrlicht"`.
-
-`pygame` is only needed for Part 4 (`operator_console.py`); a gamepad or
-wheel is read natively by Chrono and needs no extra package.
+Check with `python -c "import pychrono.vehicle, pychrono.irrlicht"`.
 
 **Intel Macs:** `osx-64` PyChrono is frozen at 8.0.0 (2023) and much of the API
-used here does not exist in it. Apple Silicon (`osx-arm64`), Linux and Windows
-all have 10.0.0. Note that Chrono::Sensor is not built for macOS on either
-architecture -- it is in the Linux and Windows packages only, and nothing in
-this tutorial needs it.
+used here does not exist in it. Apple Silicon, Linux and Windows all have 10.0.0.
 
-Files:
+## Demos 1 and 2: the clock, and a person driving
 
-| file | what it is |
+Both are `tutorial_HIL_driver.py`, configured in the `CONFIGURATION` block at
+the bottom of the file.
+
+**`REALTIME`** decides whether the process sleeps off the time it did not need:
+
+| | |
 |---|---|
-| `tutorial_HIL_driver.py` | the tutorial (HMMWV -- or `VEHICLE` of your choice -- on rigid terrain, Irrlicht window) |
-| `operator_console.py` | a pygame window that sends driver inputs over UDP and prints telemetry |
-| `hil_gearbox.py` | Part 6: reading and driving a vehicle's transmission |
-| `hil_scene.py` | Part 7: flat terrain, or the Mcity digital twin |
-| `hil_plants.py` | Part 8: the vehicle, a Viper rover, and a gantry crane |
+| `"none"` | no pacing. Watch the drift column in the console run away. |
+| `"per_step"` | `ChRealtimeStepTimer.Spin(step)` once per loop. |
+| `"vehicle"` | `vehicle.EnableRealtime(True)`; the same policy, applied inside `Advance()`. |
+| `"cumulative"` | paces against total elapsed time, so it can catch up after a slow step. The per-step timers cannot. |
 
-## Parts
+**`KEYBOARD_MODE`** decides what a keypress means, which is a real design
+question and not a detail:
 
-All switches live in the `CONFIGURATION` section at the bottom of
-`tutorial_HIL_driver.py`.
+| | |
+|---|---|
+| `"cumulative"` | a press nudges the input and it stays where you left it. Fine for a test script, strange under a hand. |
+| `"held"` | the input follows the keys currently down, like a driving game. Needs the `KeyboardMode` API (PyChrono build 1187 and later). |
 
-| part | `INPUT_SOURCE` | `REALTIME` | `SEND_FEEDBACK` | what you see |
-|---|---|---|---|---|
-| 1. Keep it real-time | `"data"` | `"none"` -> `"per_step"` / `"vehicle"` / `"cumulative"` | `False` | scripted drive; console shows sim time vs wall time, drift, RTF |
-| 2. Human on the keyboard | `"keyboard"` | `"vehicle"` | `False` | `W`/`A`/`S`/`D` in the Irrlicht window drive the HMMWV (see `KEYBOARD_MODE`) |
-| 3. A gamepad or wheel | `"gamepad"` | `"vehicle"` | `False` | joystick/wheel drives the HMMWV, read natively -- no pygame |
-| 4. A device Chrono doesn't know, and closing the loop | `"udp"` | `"vehicle"` | `True` | `operator_console.py` in a second terminal drives the HMMWV and shows telemetry back |
-| 5. Customize the overlay / choose your car | any | any | any | `SHOW_*` switches and `VEHICLE` (see below) |
-| 6. Change gear | `keyboard` / `udp` | any | any | `TRANSMISSION`, and the keys printed at startup |
-| 7. Drive somewhere real | any | any | any | `SCENE = "mcity"` puts the car in the Mcity digital twin |
-| 8. Control something that isn't a car | `udp` / `data` | any | any | `PLANT = "rover"` or `"crane"` |
+W/A/S/D drive. The arrow keys are the chase camera, not the car.
 
-## Part 2: what a keypress means
+## Driving something that is not a vehicle
 
-Driving is `W`/`A`/`S`/`D`, plus `C` to center the steering, `R` to release the
-pedals and `L` to lock the current inputs. The **arrow keys are not driving
-controls** -- they zoom and orbit the chase camera, which is a separate Irrlicht
-event receiver. (Part 4's `operator_console.py` *does* drive with the arrow keys,
-but that is our own pygame window, not Chrono's.)
+`ChDriver` and `ChInteractiveDriver` live in Chrono::Vehicle. Nothing else in
+Chrono has a driver abstraction, so the question "how do I put a person in the
+loop of my crane" has no built-in answer. This is the pattern this repo uses,
+and it is three decisions.
 
-`KEYBOARD_MODE` picks what holding a key actually means, and the two answers are
-worth comparing because Part 4 has to answer the same question for its own device:
+**1. Normalise the input.** Pick a small, bounded set of numbers that a device
+produces and a plant consumes, and make it device-independent. This tutorial
+reuses the vehicle convention -- steering, throttle, braking in [-1,1] and
+[0,1] -- so one keyboard, one gamepad and one socket can drive a car, a rover
+and a crane without knowing which is on the other end.
 
-| `KEYBOARD_MODE` | what a key does | configured by |
+**2. Bind those numbers to actuation.** This is the only plant-specific part,
+and Chrono gives you four routes:
+
+| the human's number becomes | Chrono | used by |
 |---|---|---|
-| `"cumulative"` | each keypress nudges a target by a fixed delta, and the target stays where you left it | `SetThrottleDelta`, `SetSteeringDelta`, `SetBrakingDelta` |
-| `"held"` | the input follows the keys currently held down and ramps back when you let go, as in a driving game | `SetGains` |
+| a driver input | `ChDriver`, `ChInteractiveDriver` | the HMMWV |
+| a motor setpoint | `ChLinkMotor*` + `ChFunctionSetpoint` | the crane, the rover |
+| a force on a body | `AddAccumulator`, `AccumulateForce` | the push rig |
+| a constraint to a handle you move | `ChLinkTSDA` | the mouse drag |
+| a pose you set outright | `SetPos`, `SetRot` | placement, and not in the loop |
 
-`"cumulative"` is the historical Chrono::Vehicle behaviour and is still the
-default. `"held"` is the interesting one here, because it is the *same model the
-UDP console already uses*: `operator_console.py` re-sends absolute steering,
-throttle and braking every frame, and `SmoothedInputs` ramps toward them. So
-`"held"` is Chrono doing for its own keyboard exactly what Part 4 does by hand
-for a device Chrono has never heard of -- with `SetGains` as the shared ramp rate.
+**3. Send something back.** Speed, a swing angle, a contact count -- whatever
+the person needs to decide what to do next. Without it they are driving open
+loop, which is not human-in-the-loop.
+
+### The protocol
+
+Every plant in `hil_plants.py` implements the same six methods, and the loop
+never learns which one it has:
 
 ```python
-KEYBOARD_MODE = "held"
-INPUT_SOURCE = "keyboard"
+class Plant:
+    needs_vehicle_vis = False   # a plain ChVisualSystemIrrlicht will do
+    steps_own_system = False    # the caller steps the ChSystem
+
+    def apply(self, inputs):          ...  # THE BINDING. The only plant-specific part.
+    def synchronize(self, t, inputs): ...  # modules read each other
+    def advance(self, step):          ...  # plant-internal integration, if any
+    def speed(self):                  ...  # what goes back to the human
+    def status(self):                 ...  # one line of plant-specific telemetry
+    def attach(self, vis):            ...  # anything the visualiser must be told
 ```
-
-`"held"` needs the `KeyboardMode` API, which landed in PyChrono build `1187`
-(August 2026). On an older build the tutorial prints a note and stays cumulative
-rather than failing.
-
-Part 3 needs a gamepad or steering wheel. Set `JOYSTICK_CONFIG` to one of the
-JSON files that ship with Chrono in `data/vehicle/joystick/` --
-`controller_XboxOneForWindows.json`, `controller_LogitechRumblePad2.json`,
-`controller_WheelPedalsAndShifters.json`, or `controller_Default.json` -- or
-write your own. Set `JOYSTICK_DEBUG = True` and run the tutorial to print
-live axis/button numbers for your device -- no separate probe script needed.
-
-Part 4 needs nothing but a second terminal:
-
-Terminal 1, with `INPUT_SOURCE = "udp"`:
-
-```bash
-python tutorial_HIL_driver.py
-```
-
-Terminal 2 (add the simulation's IP instead to drive it from another machine):
-
-```bash
-python operator_console.py
-```
-
-Do not paste those with a trailing `# comment`: zsh only treats `#` as a comment
-when `INTERACTIVE_COMMENTS` is set, and otherwise hands it to the script as the
-simulation's hostname.
-
-## Part 5: customize the built-in overlay
-
-The Irrlicht window already ships with an on-screen HUD (the speed/steering/
-throttle/brake panel you've been watching in every part) plus Chrono's own
-tabbed info panel (bodies, contacts, timers) and a profiler. None of it is
-hand-drawn -- it's all flags and method calls on the `vis` object, so there is
-no need to build a custom overlay to add or remove pieces of it:
-
-| switch | method | what it does |
-|---|---|---|
-| `SHOW_VEHICLE_HUD` | `vis.EnableStats(bool)` | the speed/steering/throttle/brake panel |
-| `HUD_CORNER` | `vis.SetHUDLocation(x, y)` | where that panel sits on screen |
-| `SHOW_SIM_INFO_PANEL` | `vis.ShowInfoPanel(bool)` | Chrono's tabbed panel (bodies/contacts/timers) -- also toggles live with the `i` key while the sim is running |
-| `SHOW_PROFILER` | `vis.ShowProfiler(bool)` | per-module timing bars |
-
-Set `SHOW_VEHICLE_HUD = False` to remove the default panel entirely, or turn
-on `SHOW_SIM_INFO_PANEL` / `SHOW_PROFILER` to add Chrono's other built-in
-panels -- no new drawing code required either way.
-
-## Choose your car
-
-`VEHICLE` picks which Chrono::Vehicle model gets built -- `"hmmwv"` (default),
-`"sedan"`, `"uazbus"`, `"gator"`, or `"audi"`. `build_vehicle()` is the only
-place that knows the differences between them; everything else (terrain,
-driver, vis, the simulation loop) uses the same `GetVehicle()` /
-`GetSystem()` / `Synchronize()` / `Advance()` interface no matter which one
-you pick.
 
 ```python
-VEHICLE = "uazbus"  # try "hmmwv", "sedan", "uazbus", "gator", "audi"
+while vis.Run():
+    inputs = device.poll()        # never blocking: a late human is not a stalled sim
+    plant.apply(inputs)           # <- the binding
+    plant.synchronize(t, inputs)
+    plant.advance(step)
+    system.DoStepDynamics(step)
+    rt_timer.Spin(step)           # give the wall clock its due
 ```
 
-`"audi"` is the odd one out: it is assembled from JSON files rather than from a
-model wrapper class, which is how most real Chrono::Vehicle work is done and
-which is what makes Part 6's manual gearbox possible. `JsonVehicle` in the
-tutorial is the six-line adapter that lets the rest of the file treat it like
-the others.
+### The crane, in full
 
-## Part 6: change gear
-
-The three numbers a `ChDriver` carries -- steering, throttle, braking -- are
-the whole human interface, and a gear is not one of them. It belongs to the
-vehicle, so it is reached through the vehicle:
+Four bodies, two linear speed motors and one distance constraint. No vehicle,
+no terrain, no tires.
 
 ```python
-transmission = vehicle.GetTransmission()
-transmission.ShiftUp()                                  # or ShiftDown, SetGear
-transmission.asAutomatic().SetDriveMode(...)            # D / N / R
-transmission.asAutomatic().SetShiftMode(...)            # let it shift, or row it
+# Construction: a motor, and a setpoint function to steer it with.
+self.long_motor = chrono.ChLinkMotorLinearSpeed()
+self.long_motor.Initialize(bridge, ground, chrono.ChFramed(
+    bridge.GetPos(), chrono.QuatFromAngleY(chrono.CH_PI_2)))
+self.long_speed = chrono.ChFunctionSetpoint()
+self.long_motor.SetSpeedFunction(self.long_speed)
+system.AddLink(self.long_motor)
+
+# The cable IS a distance constraint: a fixed radius from the trolley, free to
+# swing in both directions. A spherical pendulum with a moving pivot.
+self.cable = chrono.ChLinkDistance()
+self.cable.Initialize(trolley, payload, False, trolley.GetPos(), payload.GetPos())
+system.AddLink(self.cable)
 ```
-
-On the keyboard you do not have to write any of that. Chrono's own Irrlicht
-event receiver already binds it, and `vis.AttachDriver(driver)` is what wires
-it up; the tutorial prints the mapping at startup:
-
-| key | automatic | manual |
-|---|---|---|
-| `Z` | toggle drive mode D / R | -- |
-| `X` | neutral | -- |
-| `T` | toggle AUTO / MANUAL shifting | -- |
-| `[` `]` | shift down / up | shift down / up |
-| `Q` `E` | -- | clutch out / in |
-
-For a device Chrono has never heard of (Part 4) nothing is wired up for you,
-which is the point of Part 4. `hil_gearbox.Gearbox` is the small adapter, and
-`operator_console.py` sends the commands over the socket it already uses,
-in an optional fourth field. Note what that field is not: the three numbers
-are *levels*, re-sent every frame, and a lost packet costs nothing. A gear
-command is an *event*, and a lost one is a shift that never happened -- so it
-is sent once, on the key-down edge, and applied exactly once.
 
 ```python
-VEHICLE = "audi"          # the only model here with a manual gearbox
-TRANSMISSION = "manual"   # "automatic" | "manual"
-START_IN_MANUAL_SHIFT = True   # or '[' and ']' look broken: an automatic left
-                               # in AUTOMATic mode overrides your gear next step
+def apply(self, inputs):
+    t = self.system.GetChTime()
+    # Throttle drives forward, braking drives back: two pedals, one axis.
+    long_cmd = (inputs.m_throttle - inputs.m_braking) * self.MAX_LONG_SPEED
+    self.long_speed.SetSetpoint(long_cmd, t)
+    self.cross_speed.SetSetpoint(inputs.m_steering * self.MAX_CROSS_SPEED, t)
 ```
 
-## Part 7: drive somewhere real
+`ChFunctionSetpoint` is the piece worth knowing. A Chrono motor is driven by a
+`ChFunction` of time, and a human's input is not a function of time anybody can
+write down in advance. The setpoint function is the adapter: push a new value
+into it each step and the motor reads it as the current value.
 
-`SCENE = "mcity"` swaps the 200 x 200 m patch for the Mcity digital twin: a
-real 32-acre test facility, its road surface driven as a collision mesh and
-its buildings, poles, signal heads and barriers drawn from a placement
-manifest.
+The crane is worth building because nothing damps the swing but the operator.
+Accelerate hard and the load swings, and it keeps swinging until someone drives
+the trolley back under it. `status()` reports the swing angle, so the console
+scores you.
 
-The scene is a third-party dataset of a few hundred megabytes and is *not*
-shipped here. It is generated once, by the converter in the Chrono tree:
+### What the numbers MEAN is a decision, and it has a cost
 
-```bash
-cd <chrono>/src/demos/vehicle/terrain/mcity
-python3 -m pip install usd-core
-./setup_mcity.sh --repo /path/to/mcity-digital-twin
-```
+A shared convention buys you one console and one input path for every plant. It
+charges you for it at the binding:
 
-Set `MCITY_DIR` if you built it somewhere other than `<chrono data>/mcity`. If
-it is not there, the tutorial says so and falls back to flat terrain rather
-than failing.
+- The crane computes `throttle - braking`, because it has one travel axis and
+  the convention gave it two pedals. No crane operator would recognise that.
+- The rover's "braking" releases the drive rather than applying a brake, because
+  `ViperDriver` has no brake input. It coasts down on rolling resistance instead
+  of stopping dead, which is the honest behaviour for a machine built that way.
+- The rover's steering is an angle in radians, not a normalised [-1,1], so the
+  binding scales it. Getting that wrong is silent: the rover just barely turns.
 
-`MCITY_DETAIL` is the knob for a weaker machine:
-
-| level | what is drawn | notes |
-|---|---|---|
-| `"ground"` | the road surface only | full elevation and full geometry to drive on, nothing else drawn. Start here on a laptop. |
-| `"light"` | plus poles, signal heads, street lights | ~430 placements, ~240k triangles |
-| `"full"` | everything in the manifest | ~860 placements |
-
-Two details worth knowing, both of which cost time to rediscover:
-
-- The car drives on the *drawn* geometry. Mcity also publishes an OpenDRIVE
-  network, and its elevation profile differs from the artist's road mesh by
-  -0.24 to +0.29 m at the 5th and 95th percentiles -- enough to watch a car
-  float and sink. Using the mesh for both makes them the same surface.
-- The spawn height is read from the ground mesh, not from `terrain.GetHeight()`.
-  `RigidTerrain` answers height queries by raycasting the collision system, and
-  that system does not exist until the first `DoStepDynamics`; asking during
-  setup returns zero, which on a site whose datum is 274 m drops the car out of
-  the world.
-
-`hil_scene.load_scenery()` is worth a read for one trick: a `ChVisualShape` is
-added to a body *with a frame*, and the same shape object can be added again at
-another frame. 860 placements therefore cost 230 meshes, not 860 copies.
-
-## Part 8: control something that isn't a car
-
-Two things about the plain visual system are worth knowing before you run the
-rover or the crane, because both were invisible while Part 8 was only ever
-checked headlessly:
-
-- A plain `ChVisualSystemIrrlicht` defaults to a **Y-up camera** while this
-  world is Z-up, so without `SetCameraVertical(CameraVerticalDir_Z)` the ground
-  renders as a wall. `ChWheeledVehicleVisualSystemIrrlicht` sets this for you;
-  the plain one does not.
-- The Irrlicht backend does not draw `ChVisualShapeSegment` at all -- it handles
-  boxes, spheres, cylinders, capsules, cones, barrels, ellipsoids, surfaces and
-  meshes, and silently ignores anything else. VSG does draw segments. The crane's
-  cable is therefore a thin cylinder, re-aimed once per step, or the payload
-  appears to float unattached.
-
-Nothing about the pattern needs a vehicle. `PLANT` picks what the same three
-numbers, arriving from the same devices, are wired into:
-
-| `PLANT` | what it is | how the inputs map |
-|---|---|---|
-| `"vehicle"` | a Chrono::Vehicle (Parts 1-7) | as usual |
-| `"rover"` | a Viper rover | steering -> wheel angle, throttle -> commanded wheel speed |
-| `"crane"` | a gantry crane with a payload on a cable | steering -> cross-travel, throttle/braking -> forward/reverse travel |
-
-The crane is the interesting one. There is no Chrono::Vehicle in it at all --
-four rigid bodies, two speed motors and a distance constraint -- and the
-payload swings freely, with nothing to damp it but you. The console prints the
-swing angle and how far the load is from the green pad, so try to set it down
-without letting it swing. It is a genuinely hard manual task, which is the
-clearest answer to why anyone puts a human in a simulation loop at all.
-
-Neither the rover nor the crane has a `ChVehicle`, so `ChInteractiveDriver`
-cannot read the keyboard for them; use `INPUT_SOURCE = "udp"` and drive them
-from `operator_console.py`, which needs no changes at all to do it. That is the
-lesson rather than the limitation: `DriverInputs` in the tutorial is the entire
-`ChDriver` contract rewritten in twelve lines of Python.
-
-```python
-PLANT = "crane"
-INPUT_SOURCE = "udp"
-REALTIME = "vehicle"      # falls back to "per_step" when there is no vehicle
-```
+Set `PLANT = "crane"` or `"rover"` in `tutorial_HIL_driver.py` to drive either.
 
 ## The Go2's locomotion policy
 
@@ -342,151 +216,40 @@ the stance PD and says so at startup. `GO2_POLICY_CKPT` overrides the path.
 From `wty-yy/go2_rl_gym` (MIT). A legged_gym-family actor: 45 observations in,
 12 joint targets out, run at 50 Hz over a PD at the physics rate.
 
-## Part 9: reach into the scene (hil_manipulate.py)
+## Demo 3: reaching into the scene (`hil_manipulate.py`)
 
-Parts 1-8 put a person in the *control* loop. This is the other thing people
-want a human for, and it is not the same: pushing a robot to see whether its
-controller recovers, dragging an object somewhere and recording where you put
-it, moving a limp arm by hand.
+Click a body in the 3D window and pull on it while its controller keeps working.
+The pick is `ChCollisionSystem::RayHit`, which is already in PyChrono; the pull
+is a stiff critically-damped `ChLinkTSDA` between the body and an invisible
+handle that follows the cursor.
 
-Chrono ships **no click-and-drag manipulator**. The mouse in both the Irrlicht
-and VSG backends is wired to the camera, and the one Irrlicht picking call in
-the tree is a commented-out line in `ChIrrCamera.cpp`. But the primitives are
-all there, and `hil_manipulate.py` is the twenty lines that assemble them:
+Two things that are easy to get wrong:
 
-| piece | what it does |
-|---|---|
-| `ChCollisionSystem::RayHit()` | pick a body along a ray, the way a click would |
-| `ChRayhitResult.hitModel` | `-> GetContactable() -> CastToChBody()` |
-| `ChLinkTSDA` | a stiff, damped rubber band from a handle body to the pick point |
+- **A ray sees COLLISION geometry, never visual geometry.** A link you can see
+  but whose collision is off is invisible to every click. That accounted for
+  every "it will not pick" bug here.
+- **The spring's gains must scale with the mass being pulled.** A stiffness that
+  feels right on a 134 kg ball is a catapult on a 0.154 kg shin. The gains are
+  built from the body's own mass, as `k = m*w^2` and `c = 2*m*w`.
 
-Dragging with a spring instead of teleporting is the point: the body still
-collides, still carries momentum, and a controller holding it still fights back.
+`go2` drags a quadruped held up by a trained locomotion policy, `arm` a Franka
+whose motors hold position, `arm-limp` the same arm with the motors off.
 
-One command, one process, two windows -- the 3D view and a small input panel:
+## Demo 4: the push rig (`hil_push.py`)
 
-```bash
-python hil_manipulate.py go2
-python hil_manipulate.py arm
-python hil_manipulate.py place
+A freehand drag cannot answer "how hard can I shove it", because no two drags
+are the same: the force depends on how fast your hand moved and how long you
+held the button. So the person keeps the parts where judgement helps -- where on
+the body, and in which direction -- and the magnitude is scripted:
+
+```
+impulse J = F * dt      a constant force, held for a fixed window
 ```
 
-**Click straight on the 3D window.** Press the left button on a body to pick it,
-drag to pull it, release to let go. Arrow keys and `Z`/`X`/`C`/`T` work there too,
-whichever window has focus.
-
-The mouse does nothing but manipulate. `AddCamera` builds an `RTSCamera`, which
-normally takes the mouse for orbit/pan/zoom, so a drag moved the body *and* swung
-the view. Its input receiver is switched off, and the camera is on keys instead:
-
-| keys | |
-|---|---|
-| mouse drag | grab and pull a body |
-| arrows, `[` `]` | move the grab handle (X/Y, then Z) |
-| `Z` `X` `C` `T` | grab/release, cycle selection, reset, log pose |
-| `Q` `E` *while dragging* | rotate the drag plane -- the depth control |
-| `A` `D` / `W` `S` / `R` `F` | camera orbit / zoom / height |
-
-The Go2's joints are **torque**-actuated with a PD stance controller
-(`StanceHolder`), not position-actuated. That distinction is the demo: a
-position-actuated joint is a *constraint*, so the solver holds its angle exactly
-and pulling a leg does nothing at all -- a soft grab cannot move it and a stiff
-one only destabilises the solver until the robot is flung across the scene.
-Torque actuation is compliant, so the leg gives when pulled and the controller
-pulls back when released.
-
-What you should see: grabbing a calf and dragging takes that leg's worst joint
-from about 3 degrees of error to 14, and releasing recovers it to about 11. It
-does not go all the way back, because the foot is planted and friction holds it
-there -- which is what a real quadruped does too. Lift the leg clear of the
-ground before releasing and the recovery is obvious.
-
-Dragging at a fixed distance from the camera confines the handle to a sphere, so
-a leg can be swung across the view but never pulled toward or away from it --
-which is why only some parts of a robot feel reachable. The cursor ray is instead
-intersected with a **drag plane** through the grab point, one that contains the
-surface normal and faces the camera as squarely as it can. `Q`/`E` rotate that
-plane about the surface normal, which is what turns sideways mouse motion into
-depth. Genesis puts the same rotation on the scroll wheel.
-
-PyChrono genuinely cannot read that window: SWIG directors are off so
-`irr::IEventReceiver` cannot be subclassed, and `getCursorControl()` and
-`getSceneCollisionManager()` both come back as unwrapped `SwigPyObject`s. But the
-window belongs to this process and macOS will describe it -- `NSEvent.mouseLocation()`,
-`CGEventSourceButtonState`, `CGEventSourceKeyState` and `CGWindowListCopyWindowInfo`,
-none of which need accessibility permission. The one thing Irrlicht will not hand
-over is the ray for a screen pixel, and `ICameraSceneNode` *is* wrapped, so
-`getFOV()` and `getAspectRatio()` are enough to build it exactly.
-
-That needs `pip install pyobjc-framework-Quartz`. Without it the script falls back
-to a small pygame input panel (keep *that* focused instead).
-
-To drive it from `operator_console.py` in a second terminal instead, or from
-another machine, add `--udp`:
-
-```bash
-python hil_manipulate.py go2 --udp
-```
-
-| mode | what it shows |
-|---|---|
-| `go2` | a real Unitree Go2 from URDF, joint motors holding a stance while you haul a leg out of it |
-| `arm` | a Franka Emika Panda in hand-guiding mode: it holds its pose, and complies while you hold a link |
-| `arm-limp` | the same arm with nothing holding it up, so it collapses under gravity and stays down |
-| `place` | kinematic placement: the pose is *set*, not pushed, and `T` logs it to `placement_place.log` |
-
-Input comes from `operator_console.py` over UDP, unchanged -- arrows move the
-handle, `[` and `]` raise and lower it, `Z` grabs, `X` cycles the selection, `T`
-logs a pose. That is not a design flourish: **PyChrono cannot read the Irrlicht
-window at all.** `irr::IEventReceiver` is exposed but abstract with no
-constructor (SWIG directors are off), and `device.getCursorControl()` returns an
-unwrapped `SwigPyObject`. No keyboard, no mouse. Part 4's socket was already the
-answer.
-
-The Go2 comes from [wty-yy/go2_rl_gym](https://github.com/wty-yy/go2_rl_gym)
-and is not shipped here (`go2_assets/` is gitignored):
-
-```bash
-git clone https://github.com/wty-yy/go2_rl_gym
-export GO2_URDF=go2_rl_gym/resources/robots/go2/urdf/go2.urdf
-```
-
-Three things about that URDF cost real time, and the script handles all of them:
-
-- **Eight links have no `<inertial>`** (collision-only cylinders on the calves).
-  Chrono's parser *segfaults* on them rather than complaining. They are stripped.
-- **The visual meshes are Collada.** Chrono reads every mesh with `tiny_obj`, so
-  a `.dae` reaches a Wavefront parser and segfaults. Convert them once and the
-  script picks the `.obj` up automatically:
-
-  ```bash
-  pip install trimesh pycollada
-  python - <<'PY'
-  import trimesh, glob, os
-  os.makedirs("go2_assets/obj", exist_ok=True)
-  for d in glob.glob("go2_assets/dae/*.dae"):
-      trimesh.load(d, force="mesh").export(
-          "go2_assets/obj/" + os.path.splitext(os.path.basename(d))[0] + ".obj")
-  PY
-  ```
-
-  With no `obj/` beside the `dae/`, the visuals are dropped and the collision
-  primitives are drawn instead -- 5 boxes, 17 cylinders, 5 spheres. Correct
-  physics, blocky picture.
-- **The default NSC solver cannot hold it still.** PSOR at 50 iterations cannot
-  resolve eighteen motor constraints and four foot contacts in one step, and
-  friction is what loses: the robot creeps across the floor as though it were on
-  ice. Barzilai-Borwein at 200 iterations takes the residual drift from 13 mm/s
-  to 0.3 mm/s. These are the same settings `tutorial_HIL_driver.py` already uses
-  on vehicles, for the same reason.
-- **`ChParserURDF` leaves collision *disabled*** on every body it creates, so
-  the robot drops silently through the floor. It is enabled on the feet only;
-  enabling it everywhere makes adjacent links fight and the robot tears itself
-  apart.
-
-The stance is held by position motors rather than a learned policy. Swapping in
-the repo's pretrained `.pt` would need torch plus that policy's exact
-observation layout; the demo is about the perturbation, not the controller.
+Both are printed and logged, so "a 1850 N push for 50 ms, 92.5 N.s, on the base
+COM, pointing +X" is reproducible by someone else. Sweeping the magnitude finds
+the threshold where recovery stops, which is the number a robustness test exists
+to produce.
 
 ## The mouse layer is not Chrono
 
@@ -500,18 +263,3 @@ takes 18 portable lines. Built, tested and written up in
 [`experimental/`](experimental/README.md) -- along with what Genesis gives its
 users for comparison. Nothing there is needed to follow this tutorial.
 
-## Things to try
-
-- `REALTIME = "none"` with `step_size = 5e-4`: RTF goes above 1 and no timer can save you.
-- Compare `drift` for `"per_step"` and `"cumulative"` over a few minutes.
-- Set `SmoothedInputs(gain=50.0)` in Part 4 and feel what raw inputs do to the suspension.
-- Unplug the network mid-run (or stop the operator console): the last input is held.
-- `JOYSTICK_DEBUG = True`: move one axis at a time and watch the printed numbers to build your own controller config.
-- Set `VEHICLE = "uazbus"` and try to drive the same scripted course as the HMMWV -- same driver, same terrain, very different vehicle.
-- `KEYBOARD_MODE = "held"` vs `"cumulative"` with the same `SetGains`: the second one ratchets, the first one drives.
-- `SHOW_SIM_INFO_PANEL = True` and press `i` while the sim is running: same panel, two ways to reach it.
-- `VEHICLE = "audi"`, `TRANSMISSION = "manual"`, `START_IN_MANUAL_SHIFT = True`: pull away in third and feel the engine bog down.
-- `T` then `[` in the Irrlicht window: take an automatic out of auto and hold a gear through a corner.
-- `SCENE = "mcity"` with `MCITY_DETAIL = "ground"` first, then `"light"`: watch the frame rate, and note that the driving does not change.
-- `PLANT = "crane"` with `INPUT_SOURCE = "udp"`: put the load on the pad with the swing under 2 degrees. Harder than it looks.
-- `PLANT = "rover"` and hold the brake: it coasts rather than stopping, because `ViperDriver` has no brake input. Real limits show up like this.

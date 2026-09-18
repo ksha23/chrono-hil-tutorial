@@ -445,6 +445,9 @@ def build(check_only=False):
     E["keyboard"] = excerpt("tutorial_HIL_driver.py",
                             'elif INPUT_SOURCE == "keyboard":',
                             "driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)")
+    E["crane"] = excerpt("hil_plants.py",
+                         "        # Throttle drives forward, braking drives back",
+                         "self.cross_speed.SetSetpoint(inputs.m_steering * self.MAX_CROSS_SPEED, t)")
     E["pick"] = excerpt("hil_manipulate.py", "def pick_along_ray(system, start, end):",
                         "chrono.ChVector3d(nrm.x, nrm.y, nrm.z))")
     E["spring"] = excerpt("hil_manipulate.py", "omega = getattr(self.system,",
@@ -918,6 +921,35 @@ def build(check_only=False):
                "`KeyboardMode`: `CUMULATIVE` nudges an input and leaves it there; "
                "`HELD` follows the keys currently down, like a driving game. HELD "
                "was added to Chrono for this tutorial and ships in build 1187."])
+
+    api_slide("Driving something that is NOT a vehicle",
+              ["# Nothing outside Chrono::Vehicle has a driver abstraction, so this",
+               "# is a pattern rather than an API. Three decisions:",
+               "#",
+               "#   1. NORMALISE THE INPUT. A few bounded numbers a device produces",
+               "#      and a plant consumes, so one console drives any of them.",
+               "#   2. BIND THEM TO ACTUATION. The only plant-specific part.",
+               "#   3. SEND SOMETHING BACK, or the person is driving open loop.",
+               "",
+               "class Plant:                     # every plant, one shape",
+               "    def apply(self, inputs):          ...  # THE BINDING",
+               "    def synchronize(self, t, inputs): ...",
+               "    def advance(self, step):          ...",
+               "    def speed(self): ...; def status(self): ...",
+               "",
+               "# A crane's entire input surface: two motors and a setpoint each.",
+               "self.long_motor = chrono.ChLinkMotorLinearSpeed()",
+               "self.long_speed = chrono.ChFunctionSetpoint()",
+               "self.long_motor.SetSpeedFunction(self.long_speed)"],
+              named(E["crane"], "hil_plants.py"),
+              ["`ChFunctionSetpoint` is the piece worth knowing. A Chrono motor is "
+               "driven by a `ChFunction` of time, and a human's input is not a "
+               "function of time anyone can write down in advance. The setpoint "
+               "function is the adapter: push a value in each step, the motor "
+               "reads it as the current one.",
+               "The convention costs something, and the crane shows the bill: it "
+               "has one travel axis and was handed two pedals, so it computes "
+               "`throttle - braking`. No crane operator would recognise that."])
 
     bullets("Input devices Chrono already speaks",
             ["`ChInteractiveDriver` covers two CLASSES of device, not two devices:",
