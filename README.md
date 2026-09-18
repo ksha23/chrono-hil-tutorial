@@ -324,11 +324,21 @@ python hil_manipulate.py arm
 python hil_manipulate.py place
 ```
 
-**Keep the input panel focused, not the 3D view.** PyChrono cannot read the
-Irrlicht window's keyboard at all (`irr::IEventReceiver` is exposed but abstract,
-SWIG directors are off), so the keys have to be read by something else -- but
-that something can live in the same process. pygame and Irrlicht coexist here
-quite happily; only the socket was ever needed.
+**Click straight on the 3D window.** Press the left button on a body to pick it,
+drag to pull it, release to let go. Arrow keys and `Z`/`X`/`C`/`T` work there too,
+whichever window has focus.
+
+PyChrono genuinely cannot read that window: SWIG directors are off so
+`irr::IEventReceiver` cannot be subclassed, and `getCursorControl()` and
+`getSceneCollisionManager()` both come back as unwrapped `SwigPyObject`s. But the
+window belongs to this process and macOS will describe it -- `NSEvent.mouseLocation()`,
+`CGEventSourceButtonState`, `CGEventSourceKeyState` and `CGWindowListCopyWindowInfo`,
+none of which need accessibility permission. The one thing Irrlicht will not hand
+over is the ray for a screen pixel, and `ICameraSceneNode` *is* wrapped, so
+`getFOV()` and `getAspectRatio()` are enough to build it exactly.
+
+That needs `pip install pyobjc-framework-Quartz`. Without it the script falls back
+to a small pygame input panel (keep *that* focused instead).
 
 To drive it from `operator_console.py` in a second terminal instead, or from
 another machine, add `--udp`:

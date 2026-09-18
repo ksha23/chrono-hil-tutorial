@@ -172,6 +172,132 @@ class LocalInput:
         pg.display.flip()
 
 
+class DirectInput:
+    """Mouse and keyboard read from the OS, so they work ON the 3D window.
+
+    PyChrono cannot read that window itself: SWIG directors are off so
+    irr::IEventReceiver cannot be subclassed, and getCursorControl() and
+    getSceneCollisionManager() both come back as unwrapped SwigPyObjects.  But
+    the window belongs to this process and macOS will tell us about it:
+
+        AppKit.NSEvent.mouseLocation()        where the cursor is, focus or not
+        Quartz.CGEventSourceButtonState()     whether the left button is down
+        Quartz.CGEventSourceKeyState()        whether a key is down
+        Quartz.CGWindowListCopyWindowInfo()   where our window sits on screen
+
+    None of those need accessibility permission.  What Irrlicht will not hand
+    over is the ray for a screen pixel, but ICameraSceneNode IS wrapped, so
+    getFOV() and getAspectRatio() are enough to build it exactly.
+    """
+
+    # macOS virtual key codes
+    K = {"left": 123, "right": 124, "down": 125, "up": 126,
+         "z": 6, "x": 7, "c": 8, "t": 17, "lbracket": 33, "rbracket": 30}
+    EDGE = {"z": "f", "x": "n", "c": "r", "t": "m", "rbracket": "u", "lbracket": "d"}
+
+    def __init__(self, vis, title, content_w, content_h):
+        import Quartz, AppKit
+        self.Q, self.AK = Quartz, AppKit
+        self.vis, self.title = vis, title
+        self.cw, self.ch = content_w, content_h
+        self.commands = []
+        self.prev = {k: False for k in self.EDGE}
+        self.prev_mouse = False
+        self.addr = ("direct", 0)
+        self.last = (0.0, 0.0, 0.0)
+        self._rect = None
+        self._rect_age = 0
+        print("[input] reading mouse and keys from the OS - click straight on the 3D window")
+
+    # -- OS state ------------------------------------------------------------
+    def _key(self, name):
+        return bool(self.Q.CGEventSourceKeyState(
+            self.Q.kCGEventSourceStateHIDSystemState, self.K[name]))
+
+    def mouse_down(self):
+        return bool(self.Q.CGEventSourceButtonState(
+            self.Q.kCGEventSourceStateHIDSystemState, 0))
+
+    def window_rect(self):
+        """Screen rect of our Irrlicht window, refreshed occasionally (it can move)."""
+        self._rect_age -= 1
+        if self._rect is not None and self._rect_age > 0:
+            return self._rect
+        wl = self.Q.CGWindowListCopyWindowInfo(
+            self.Q.kCGWindowListOptionOnScreenOnly | self.Q.kCGWindowListExcludeDesktopElements,
+            self.Q.kCGNullWindowID)
+        for w in wl:
+            if self.title.lower() in (w.get("kCGWindowName") or "").lower():
+                b = w["kCGWindowBounds"]
+                self._rect = (b["X"], b["Y"], b["Width"], b["Height"])
+                self._rect_age = 60
+                return self._rect
+        return self._rect
+
+    def cursor_pixel(self):
+        """Cursor in window content pixels, or None when it is outside."""
+        r = self.window_rect()
+        if r is None:
+            return None
+        wx, wy, ww, wh = r
+        loc = self.AK.NSEvent.mouseLocation()
+        screen_h = self.AK.NSScreen.screens()[0].frame().size.height
+        top_y = screen_h - loc.y                      # Quartz counts down from the top
+        chrome = wh - self.ch                          # title bar
+        px = loc.x - wx
+        py = top_y - wy - chrome
+        if 0 <= px < self.cw and 0 <= py < self.ch:
+            return px, py
+        return None
+
+    # -- the ray Irrlicht would not give us ----------------------------------
+    def ray_through(self, px, py, reach=60.0):
+        cam = self.vis.GetActiveCamera()
+        # vis.GetCameraPosition() reports (0,0,0) for a camera added with
+        # AddCamera, so ask the Irrlicht node itself. Chrono passes world
+        # coordinates through 1:1 once SetCameraVertical(Z) is set.
+        cp, ct = cam.getAbsolutePosition(), cam.getTarget()
+        eye = chrono.ChVector3d(cp.X, cp.Y, cp.Z)
+        tgt = chrono.ChVector3d(ct.X, ct.Y, ct.Z)
+        fwd = tgt - eye
+        n = fwd.Length()
+        if n < 1e-9:
+            return None
+        fwd = fwd / n
+        world_up = chrono.ChVector3d(0, 0, 1)
+        right = fwd.Cross(world_up)
+        if right.Length() < 1e-6:
+            right = chrono.ChVector3d(1, 0, 0)
+        right = right / right.Length()
+        up = right.Cross(fwd)
+        tan_v = math.tan(cam.getFOV() * 0.5)
+        aspect = cam.getAspectRatio()
+        ndc_x = (2.0 * px / self.cw) - 1.0
+        ndc_y = 1.0 - (2.0 * py / self.ch)
+        d = fwd + right * (ndc_x * tan_v * aspect) + up * (ndc_y * tan_v)
+        d = d / d.Length()
+        return eye, eye + d * reach
+
+    # -- Console-compatible surface -----------------------------------------
+    def poll(self):
+        for name, cmd in self.EDGE.items():
+            now = self._key(name)
+            if now and not self.prev[name]:
+                self.commands.append(cmd)
+            self.prev[name] = now
+        steer = (-1.0 if self._key("left") else 0.0) + (1.0 if self._key("right") else 0.0)
+        self.last = (steer, 1.0 if self._key("up") else 0.0,
+                     1.0 if self._key("down") else 0.0)
+        return self.last
+
+    def take_commands(self):
+        c, self.commands = self.commands, []
+        return c
+
+    def send(self, text):
+        pass
+
+
 # -----------------------------------------------------------------------------
 # Picking and grabbing
 # -----------------------------------------------------------------------------
@@ -191,8 +317,10 @@ def pick_along_ray(system, start, end):
 def pick_at_crosshair(system, vis, reach=50.0):
     """Ray from the camera through the centre of the view. With a wrapped mouse
     this would be getRayFromScreenCoordinates(cursor) instead; the rest is the same."""
-    eye = vis.GetCameraPosition()
-    tgt = vis.GetCameraTarget()
+    cam = vis.GetActiveCamera()
+    cp, ct = cam.getAbsolutePosition(), cam.getTarget()
+    eye = chrono.ChVector3d(cp.X, cp.Y, cp.Z)
+    tgt = chrono.ChVector3d(ct.X, ct.Y, ct.Z)
     d = tgt - eye
     n = d.Length()
     if n < 1e-9:
@@ -431,10 +559,11 @@ def main(mode, headless_script=None, use_udp=False):
     kinematic = (mode == "place")
     grabber = None if kinematic else Grabber(system)
 
+    title = f"PART 9: {mode} - reach into the scene"
     vis = irr.ChVisualSystemIrrlicht()
     vis.AttachSystem(system)
     vis.SetCameraVertical(chrono.CameraVerticalDir_Z)   # the world is Z-up
-    vis.SetWindowTitle(f"PART 9: {mode} - reach into the scene")
+    vis.SetWindowTitle(title)
     vis.SetWindowSize(1280, 800)
     vis.Initialize()
     vis.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
@@ -448,10 +577,15 @@ def main(mode, headless_script=None, use_udp=False):
     elif use_udp:
         console = Console()
     else:
-        console = LocalInput()
+        try:
+            console = DirectInput(vis, title, 1280, 800)
+        except Exception as exc:                      # not macOS, or no pyobjc
+            print(f"[input] OS input unavailable ({exc}); falling back to a local panel")
+            console = LocalInput()
     sel = 0
     held = False
     lift = 0.0          # ] / [ toggle the handle moving up / down in Z
+    drag_depth = 1.0
     seen_packet = False
     system.DoStepDynamics(STEP)          # the collision system must exist to raycast
 
@@ -514,6 +648,34 @@ def main(mode, headless_script=None, use_udp=False):
                     grabber.release(); held = False
                 print("[reset]")
 
+        # Mouse straight on the 3D window: press to pick what is under the
+        # cursor, drag to pull it, release to let go.
+        if isinstance(console, DirectInput) and not kinematic:
+            down = console.mouse_down()
+            at = console.cursor_pixel()
+            if down and not console.prev_mouse and at is not None:
+                r = console.ray_through(*at)
+                if r:
+                    got = pick_along_ray(system, r[0], r[1])
+                    if got:
+                        body, point = got
+                        if body not in (grabber.handle,):
+                            grabber.grab(body, point)
+                            held = True
+                            _c = console.vis.GetActiveCamera().getAbsolutePosition()
+                            drag_depth = (point - chrono.ChVector3d(_c.X, _c.Y, _c.Z)).Length()
+                            print(f"[mouse] grabbed {body.GetName()}")
+            elif down and held and at is not None:
+                r = console.ray_through(*at)
+                if r:
+                    d = (r[1] - r[0])
+                    d = d / d.Length()
+                    grabber.handle.SetPos(r[0] + d * drag_depth)
+            elif (not down) and console.prev_mouse and held:
+                grabber.release(); held = False
+                print("[mouse] released")
+            console.prev_mouse = down
+
         dx = (th - br) * HANDLE_SPEED * STEP
         dy = s * HANDLE_SPEED * STEP
         dz = lift * HANDLE_SPEED * STEP
@@ -521,7 +683,7 @@ def main(mode, headless_script=None, use_udp=False):
             b = grabbable[sel]
             p = b.GetPos()
             b.SetPos(chrono.ChVector3d(p.x + dx, p.y + dy, p.z + dz))
-        elif held:
+        elif held and not (isinstance(console, DirectInput) and console.prev_mouse):
             grabber.move(dx, dy, dz)
 
         if n % render_every == 0:
