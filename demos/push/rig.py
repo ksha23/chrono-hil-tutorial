@@ -63,6 +63,34 @@ def angles_from_unit(vx, vy, vz):
             math.degrees(math.asin(max(-1.0, min(1.0, vz)))))
 
 
+# -- the two argument parsers, here rather than in main.py, because run_sweep
+#    below needs them and main.py imports this file, not the other way round ---
+def parse_dir(text):
+    """'1,0,0' or 'az=30,el=-10' or '+y'."""
+    text = (text or "1,0,0").strip().lower()
+    presets = {"+x": (1, 0, 0), "x": (1, 0, 0), "-x": (-1, 0, 0),
+               "+y": (0, 1, 0), "y": (0, 1, 0), "-y": (0, -1, 0),
+               "+z": (0, 0, 1), "z": (0, 0, 1), "-z": (0, 0, -1)}
+    if text in presets:
+        return presets[text]
+    if "=" in text:
+        kv = dict(p.split("=") for p in text.split(","))
+        return unit_from_angles(float(kv.get("az", 0.0)), float(kv.get("el", 0.0)))
+    parts = [float(v) for v in text.split(",")]
+    if len(parts) != 3:
+        raise SystemExit(f"--dir wants x,y,z or az=..,el=.. or +x; got {text!r}")
+    return tuple(parts)
+
+
+def parse_point(text):
+    if not text:
+        return None
+    parts = [float(v) for v in text.split(",")]
+    if len(parts) != 3:
+        raise SystemExit(f"--point wants x,y,z; got {text!r}")
+    return tuple(parts)
+
+
 # -----------------------------------------------------------------------------
 # The push itself
 # -----------------------------------------------------------------------------

@@ -47,8 +47,9 @@ from chronohil import chrono
 from demos.push.panel import PushInput, PushMarker, PushPanel
 from demos.push.rig import (DUR_MAX, MAG_MAX, PushConfig, PushRig, RENDER_FPS, SETTLE,
                   STEP, WARMUP, angles_from_unit, base_state, cold_rig,
-                  evaluate, log_record, print_trace, run_headless, run_sweep,
-                  snapshot, summarize, unit_from_angles, write_trace)
+                  evaluate, log_record, parse_dir, parse_point, print_trace,
+                  run_headless, run_sweep, snapshot, summarize, unit_from_angles,
+                  write_trace)
 
 def run_interactive(args):
     rig = PushRig(urdf=args.urdf, z_tol=args.z_tol, up_tol=args.up_tol,
@@ -60,11 +61,15 @@ def run_interactive(args):
 
     title = "PART 10: push test - click the robot, then SPACE"
     vis = irr.ChVisualSystemIrrlicht()
-    vis.AttachSystem(rig.system)
     vis.SetCameraVertical(chrono.CameraVerticalDir_Z)      # or the world is sideways
     vis.SetWindowTitle(title)
     vis.SetWindowSize(1280, 800)
+    # Attach after Initialize, so require_window gets a turn: Initialize binds
+    # every attached asset, and on a machine with no display that binding
+    # segfaults before the guard can speak. See demos/manipulate/main.py.
     vis.Initialize()
+    H.require_window(vis, how="rerun with --headless")
+    vis.AttachSystem(rig.system)
     vis.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
     vis.AddTypicalLights()
     vis.AddSkyBox()
@@ -224,7 +229,17 @@ def run_interactive(args):
             if panel is not None:
                 panel.draw(rig.cfg, status, rig.standing(), rig.records)
 
+    # --shot AND THE PANEL DO NOT MIX ON EVERY PLATFORM. WriteImageToFile reads
+    # back whichever GL context the driver has current, and the pygame panel is
+    # a second one in this same process. On the Mac the read-back is the scene
+    # either way; on Linux/GLX the same run wrote a black frame with a band of
+    # the panel's pixels through it, and closing the panel first was worse
+    # still -- pure noise, since the context it was reading had just been
+    # destroyed. --no-panel produces the correct PNG on both, byte for byte.
     if args.shot:
+        if panel is not None:
+            print("[shot] a screenshot taken with the panel open can come back\n"
+                  "       corrupted; --no-panel is the one that is always right")
         marker.update(rig.cfg, False)
         vis.BeginScene(); vis.Render(); vis.EndScene()
         vis.WriteImageToFile(args.shot)
@@ -238,32 +253,10 @@ def run_interactive(args):
 # -----------------------------------------------------------------------------
 # CLI
 # -----------------------------------------------------------------------------
-def parse_dir(text):
-    """'1,0,0' or 'az=30,el=-10' or '+y'."""
-    text = (text or "1,0,0").strip().lower()
-    presets = {"+x": (1, 0, 0), "x": (1, 0, 0), "-x": (-1, 0, 0),
-               "+y": (0, 1, 0), "y": (0, 1, 0), "-y": (0, -1, 0),
-               "+z": (0, 0, 1), "z": (0, 0, 1), "-z": (0, 0, -1)}
-    if text in presets:
-        return presets[text]
-    if "=" in text:
-        kv = dict(p.split("=") for p in text.split(","))
-        return unit_from_angles(float(kv.get("az", 0.0)), float(kv.get("el", 0.0)))
-    parts = [float(v) for v in text.split(",")]
-    if len(parts) != 3:
-        raise SystemExit(f"--dir wants x,y,z or az=..,el=.. or +x; got {text!r}")
-    return tuple(parts)
-
-
-def parse_point(text):
-    if not text:
-        return None
-    parts = [float(v) for v in text.split(",")]
-    if len(parts) != 3:
-        raise SystemExit(f"--point wants x,y,z; got {text!r}")
-    return tuple(parts)
-
-
+# parse_dir and parse_point live in rig.py, because run_sweep there parses the
+# same two arguments and a demo file cannot be imported back into the library
+# it is built on. Splitting them across the two files is what broke --sweep:
+# run_sweep called a parse_dir that was only ever defined here.
 def build_parser():
     p = argparse.ArgumentParser(
         description="PART 10: configurable impulse pushes on a quadruped, "

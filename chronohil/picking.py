@@ -10,6 +10,11 @@
 # =============================================================================
 """Turning a screen ray into a body, and a body into something you can pull."""
 
+import math          # set_plane's rotation. Nothing headless touches set_plane,
+                     # so losing this line broke only the mouse: every drag died
+                     # on NameError at the instant of the grab, and every test
+                     # that does not use a mouse still passed.
+
 from .chrono_env import chrono
 from .config import GRAB_MAX_SPEED, GRAB_OMEGA, GRAB_REACH, GRAB_ZETA
 

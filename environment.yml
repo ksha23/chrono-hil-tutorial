@@ -3,17 +3,26 @@
 #     conda env create -f environment.yml
 #     conda activate chrono-hil
 #
-# Versions are pinned to minor rather than to build strings, so this resolves on
-# Linux and Windows as well as on the macOS it was written on. PyChrono comes
-# from the projectchrono channel; build 1187 is the first with the vehicle
-# KeyboardMode::HELD API that Part 2 uses.
+# PyChrono comes from the projectchrono channel, and the BUILD NUMBER is pinned
+# because the version alone is not enough: build 1187 is the first with the
+# vehicle KeyboardMode::HELD API that Part 2 uses, and "pychrono=10.0.0" is
+# happy to hand you a build from five months earlier that does not have it.
+#
+# Python is 3.12 for the same reason, which is not a preference. On linux-64
+# every pychrono py313 build after 638 (Apr 2026) is compiled against the
+# FREE-THREADED cp313t ABI, so with python=3.13 the solver cannot use them and
+# quietly falls back to 638 -- no warning, no conflict, just an environment
+# where veh.ChInteractiveDriver has no KeyboardMode_HELD and Part 2 silently
+# runs in "cumulative". macOS never saw this because osx-arm64's py313 1187 is
+# a plain cp313 build. The py312 1187 build is plain cp312 on linux-64,
+# osx-arm64 and win-64 alike, so all three get the same Chrono.
 name: chrono-hil
 channels:
   - projectchrono
   - conda-forge
 dependencies:
-  - python=3.13
-  - pychrono=10.0.0
+  - python=3.12
+  - pychrono=10.0.0=*_1187
   - numpy>=2.0
   - pygame>=2.6          # the push configurator's panel window
   - irrlicht=1.8.5       # the 3D window PyChrono renders into

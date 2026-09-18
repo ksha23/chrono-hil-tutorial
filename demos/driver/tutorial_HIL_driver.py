@@ -68,9 +68,13 @@ if "-h" in sys.argv or "--help" in sys.argv:
 # The loader-path trap, and its message, live in one place for every demo.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
-from chronohil.chrono_env import chrono
+from chronohil.chrono_env import chrono, require_window
 
 import pychrono.irrlicht as irr
+# Not optional and not a convenience alias: `veh` is used at module level in the
+# CONFIGURATION block at the bottom, so losing this line does not fail at the
+# first vehicle call, it fails while the file is still being read.
+import pychrono.vehicle as veh
 
 import hil_gearbox
 import hil_plants
@@ -646,6 +650,13 @@ def main():
         vis.SetWindowSize(1280, 800)
         vis.SetChaseCamera(chrono.ChVector3d(0.0, 0.0, 1.75), chase_dist, 0.5)
         vis.Initialize()
+        # This guard cannot save the vehicle case and is here for the day it
+        # can. ChWheeledVehicleVisualSystemIrrlicht::Initialize builds the HUD
+        # through the video driver it just failed to make, so on a machine with
+        # no display it segfaults INSIDE this call, one frame below Python. The
+        # plain visual system further down returns from Initialize and is
+        # caught properly. Part 8 (PLANT = "rover"/"crane") takes that branch.
+        require_window(vis, how="the push demo is the one that runs without one")
         vis.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
         vis.AddLightDirectional()
         vis.AddSkyBox()
@@ -667,14 +678,18 @@ def main():
     else:
         ### PART 8: a plain visual system, because there is no vehicle to attach ###
         vis = irr.ChVisualSystemIrrlicht()
-        vis.AttachSystem(system)
         # Chrono's world here is Z-up, but a plain ChVisualSystemIrrlicht
         # defaults to a Y-up camera, which renders the ground as a wall. The
         # vehicle visual system sets this for you; this one does not.
         vis.SetCameraVertical(chrono.CameraVerticalDir_Z)
         vis.SetWindowTitle(title)
         vis.SetWindowSize(1280, 800)
+        # Attach after Initialize, so require_window gets a turn: Initialize
+        # binds every attached asset, and with no display that binding
+        # segfaults before the guard can speak. See demos/manipulate/main.py.
         vis.Initialize()
+        require_window(vis, how="the push demo is the one that runs without one")
+        vis.AttachSystem(system)
         vis.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
         vis.AddTypicalLights()
         vis.AddSkyBox()

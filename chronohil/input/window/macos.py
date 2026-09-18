@@ -40,8 +40,13 @@ class MacOSWindowInput:
     getFOV() and getAspectRatio() are enough to build it exactly.
     """
 
-    # macOS virtual key codes
-    K = {"left": 123, "right": 124, "down": 125, "up": 126,
+    # macOS virtual key codes. This table has to cover every name any demo's
+    # `edges` can mention, because a backend is now composed rather than
+    # subclassed: the push demo used to inherit from this class and add
+    # space=49 itself, and when it stopped doing that the key went missing --
+    # its first poll() raised KeyError: 'space' and the interactive demo died
+    # on the Mac, while Linux never noticed because it has no backend at all.
+    K = {"left": 123, "right": 124, "down": 125, "up": 126, "space": 49,
          "z": 6, "x": 7, "c": 8, "t": 17, "lbracket": 33, "rbracket": 30,
          # camera, deliberately on keys so the mouse stays free for grabbing
          "a": 0, "d": 2, "w": 13, "s": 1, "r": 15, "f": 3,

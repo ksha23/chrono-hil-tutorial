@@ -34,7 +34,7 @@ import pychrono.irrlicht as irr
 from chronohil import (FreeDriveJoint, Grabber, GRAB_REACH, HANDLE_SPEED,
                        LimpJoint, RENDER_FPS, STEP, StanceHolder, chrono,
                        pick_along_ray, pick_at_crosshair, pick_near_ray,
-                       scene_arm, scene_go2, scene_place)
+                       require_window, scene_arm, scene_go2, scene_place)
 from chronohil.input import Console, LocalInput, open_window_input
 import chronohil.scenes as scenes
 
@@ -68,11 +68,20 @@ def main(mode, headless_script=None, use_udp=False):
 
     title = f"PART 9: {mode} - reach into the scene"
     vis = irr.ChVisualSystemIrrlicht()
-    vis.AttachSystem(system)
     vis.SetCameraVertical(chrono.CameraVerticalDir_Z)   # the world is Z-up
     vis.SetWindowTitle(title)
     vis.SetWindowSize(1280, 800)
+    # ATTACH AFTER INITIALIZE, so there is a moment to check the window opened.
+    # Initialize() both makes the device and binds every attached system's
+    # assets to it, and with the scene already attached the binding is what
+    # dies first: on a display-less machine the ground plane's texture is
+    # loaded through a null video driver and the process segfaults inside
+    # Initialize, before any guard could run. Initialize with nothing attached
+    # survives, and AttachSystem afterwards binds just the same -- rendered
+    # frames from the two orderings are byte-identical on macOS and on Linux.
     vis.Initialize()
+    require_window(vis, how="see demos/push/main.py --headless")
+    vis.AttachSystem(system)
     vis.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
     vis.AddTypicalLights()
     vis.AddSkyBox()
@@ -103,10 +112,19 @@ def main(mode, headless_script=None, use_udp=False):
     system.DoStepDynamics(STEP)          # the collision system must exist to raycast
 
     print(f"\n{hint}")
-    print("  MOUSE on the 3D view: press to grab, drag to pull, release to drop\n"
-          "  arrows move   [ ] up/down   Z grab   X select   T log   C reset\n"
-          "  Q/E while dragging: rotate the drag plane - this is the depth control\n"
-          "  camera (mouse is not used for it): A/D orbit   W/S zoom   R/F height\n")
+    # Only list the controls this console actually has. The mouse, the drag
+    # plane and the camera keys all go through the 3D window, so on a build
+    # that cannot read it they are dead letters -- and printing them anyway
+    # sent the reader off clicking a window that was never going to answer.
+    # The question is what the console can do, not which OS this is.
+    if hasattr(console, "ray_through"):
+        print("  MOUSE on the 3D view: press to grab, drag to pull, release to drop\n"
+              "  arrows move   [ ] up/down   Z grab   X select   T log   C reset\n"
+              "  Q/E while dragging: rotate the drag plane - this is the depth control\n"
+              "  camera (mouse is not used for it): A/D orbit   W/S zoom   R/F height\n")
+    elif console is not None:
+        print("  arrows move   [ ] up/down   Z grab   X select   T log   C reset\n"
+              "  no mouse picking on this build, so Z grabs whatever X has selected\n")
 
     # PART 1, applied here. Without it this loop steps as fast as the machine
     # allows -- about fifty times real time on this Mac -- so a 1.2 m/s handle

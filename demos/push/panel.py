@@ -61,8 +61,12 @@ PANEL_TITLE = "PART 10: push configurator"
 
 
 # -----------------------------------------------------------------------------
-# The panel's mouse, read from macOS rather than from pygame
+# The panel, and its mouse from whichever source this platform offers
 # -----------------------------------------------------------------------------
+# open_panel_pointer() decides that, not this file: it hands back an OS cursor
+# where polling one is the only thing that works, and None everywhere else, in
+# which case pump() falls through to pygame's own events. Both paths run the
+# same hit tests -- see _pump_os and _pump_event below.
 class PushPanel:
     """Direction and magnitude, adjustable and displayed as numbers.
 
@@ -86,8 +90,14 @@ class PushPanel:
         pygame.init()
         pygame.display.set_caption(PANEL_TITLE)
         self.screen = pygame.display.set_mode((self.W, self.H_))
-        self.f = pygame.font.SysFont("Menlo, Monaco, monospace", 13)
-        self.fb = pygame.font.SysFont("Menlo, Monaco, monospace", 15, bold=True)
+        # A LIST, first match wins, ending in a face that exists everywhere.
+        # SysFont falls back to pygame's own proportional default when it
+        # matches nothing, and the readouts here are columns of digits: with
+        # only the two Mac faces named, every Linux panel drew them in a
+        # variable-width font and the numbers jittered as they changed.
+        self.f = pygame.font.SysFont("menlo,monaco,dejavusansmono,monospace", 13)
+        self.fb = pygame.font.SysFont("menlo,monaco,dejavusansmono,monospace", 15,
+                                      bold=True)
         self.drag = None
         self.sliders = []     # filled by draw(), used by the next pump()
         self.buttons = []
