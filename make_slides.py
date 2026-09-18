@@ -765,11 +765,7 @@ def build(check_only=False):
              ("`RTF > 1`  -  slower than real time. No amount of sleeping fixes this.", 1),
              "So holding the clock is two separate problems:",
              ("do not run FAST  -  sleep off the slack (easy, one call)", 1),
-             ("do not run SLOW  -  make the step cheap enough to have slack (the real work)", 1)],
-            note=[f"Unpaced, a box being dragged by hand travelled "
-                  f"{N['unpaced_m']} m in one wall-clock second instead of "
-                  f"{N['paced_m']} m. The physics was right both times. Only one of "
-                  f"them was usable by a person."])
+             ("do not run SLOW  -  make the step cheap enough to have slack (the real work)", 1)])
 
     api_slide("Holding wall-clock time: the pacing surface",
               ["// chrono/core/ChRealtimeStep.h",
@@ -1063,8 +1059,8 @@ def build(check_only=False):
              "everything that is not a vehicle gets a person in its loop",
              ["Drag a leg while the stance controller fights back",
               "Drag a Franka link, hand-guided or fully unactuated",
-              f"Yanking a link into the floor: `{N['yank_before']}` before the "
-              f"gains were bounded, `{N['yank_after']}` after"],
+              "The same drag works on a 0.15 kg shin and a 2.7 kg arm link, "
+              "because the spring is built from the mass it is pulling"],
              shots=["demo_go2.png", "demo_arm.png"],
              note=["This is the clearest case of the definition on the whole "
                    "deck: you pull, the controller resists, you feel it resist, "
@@ -1090,13 +1086,19 @@ def build(check_only=False):
 
     showtime("how hard can you shove it",
              "click where the push lands, set direction and magnitude, fire a "
-             "measured impulse, watch the controller recover or fail",
+             "measured impulse, and see whether the controller holds",
              "robustness testing that produces a NUMBER, so the result can go in a "
              "report and somebody else can reproduce it",
              [f"Forward at the base COM: `{N['push_fwd_ok']}` recovers, "
               f"`{N['push_fwd_fail']}` does not",
               f"Sideways: `{N['push_lat_ok']}` recovers, `{N['push_lat_fail']}` does not",
-              "Same impulse, applied 5 cm higher up the torso: the verdict flips"],
+              "Same impulse, applied 5 cm higher up the torso: the verdict flips",
+              "`What is holding it up matters.` Here it is a PD law holding a fixed "
+              "stance, not a learned policy. It stiffens and resists, and it cannot "
+              "take a step, so past the tipping point it simply topples.",
+              "That is a property of the CONTROLLER, not of the rig. Put a "
+              "locomotion policy behind the same joints and the rig measures that "
+              "instead, including whether it steps to catch itself."],
              shots=["demo_push.png"],
              note=["That last line is the reason a human is still in this one. "
                    "Where to push is a judgement call, and it changes the answer "

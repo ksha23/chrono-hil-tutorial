@@ -547,8 +547,23 @@ class Grabber:
 # Scenes
 # -----------------------------------------------------------------------------
 def ground_plane(system, size=20.0):
-    mat = chrono.ChContactMaterialNSC()
-    mat.SetFriction(0.8)
+    """The floor, with whichever contact material this system can actually use.
+
+    An NSC material in an SMC system is not an error and not a warning: bodies
+    simply fall through it. The Go2 scene runs SMC because that is what its
+    policy was trained against, so this has to follow the system rather than
+    assume.
+    """
+    if system.GetContactMethod() == chrono.ChContactMethod_SMC:
+        # The values the policy was trained against, from NeDM's rigid ground.
+        mat = chrono.ChContactMaterialSMC()
+        mat.SetFriction(0.9)
+        mat.SetRestitution(0.01)
+        mat.SetGn(60.0)
+        mat.SetKn(2e5)
+    else:
+        mat = chrono.ChContactMaterialNSC()
+        mat.SetFriction(0.8)
     g = chrono.ChBodyEasyBox(size, size, 1.0, 1000, True, True, mat)
     g.SetPos(chrono.ChVector3d(0, 0, -0.5))
     g.SetFixed(True)
@@ -640,9 +655,190 @@ class StanceHolder:
         self.fn.SetConstant(max(-self.TAU_MAX, min(self.TAU_MAX, tau)))
 
 
+# -----------------------------------------------------------------------------
+# The real thing: a trained locomotion policy driving the twelve joints
+# -----------------------------------------------------------------------------
+# WHERE THE CHECKPOINT COMES FROM. A legged_gym-family Go2 actor, TorchScript,
+# 45 observations in and 12 actions out. Set GO2_POLICY_CKPT, or drop one at
+# go2_assets/go2_policy.pt. Without one the scene falls back to the PD stance
+# holder below, which holds a pose but cannot step.
+GO2_POLICY_PATHS = (
+    os.environ.get("GO2_POLICY_CKPT", ""),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "go2_assets/go2_policy.pt"),
+    os.path.expanduser("~/sync/sbel/go2_finetuned_v4.pt"),
+)
+
+
+def find_go2_policy():
+    for q in GO2_POLICY_PATHS:
+        if q and os.path.exists(q):
+            return q
+    return None
+
+
+class Go2Policy:
+    """A trained locomotion policy, driving the joints through a PD actuator.
+
+    NONE OF THESE CONVENTIONS ARE OURS and none of them are negotiable: they
+    belong to the harness the checkpoint was trained in, and each one silently
+    corrupts the observation if it is wrong, which shows up as a robot that
+    twitches and falls rather than as an error. They are taken from NeDM's
+    imported_policy.py, which derived them against the checkpoint's own config.
+
+        joint order    the policy counts FL, FR, RL, RR; the URDF gives us
+                       RR, RL, FR, FL, hence TO_POLICY
+        sign           joint angles and targets are NEGATED between the two
+        defaults       hips are +/-0.1, not 0, and front and rear thighs differ
+        observation    45, not the base config's 48: there is no base linear
+                       velocity block, which is exactly why this checkpoint
+                       ports to another simulator at all
+        rates          the POLICY runs at 50 Hz; the PD underneath it runs every
+                       physics step. A PD evaluated only at the policy rate is a
+                       different controller and this policy would not survive it.
+
+    Unlike the stance holder, this one can pick a foot up, so a shove it cannot
+    simply stiffen against is answered by stepping.
+    """
+
+    NAMES = ["RR_hip_joint", "RR_thigh_joint", "RR_calf_joint",
+             "RL_hip_joint", "RL_thigh_joint", "RL_calf_joint",
+             "FR_hip_joint", "FR_thigh_joint", "FR_calf_joint",
+             "FL_hip_joint", "FL_thigh_joint", "FL_calf_joint"]
+    TO_POLICY = [9, 10, 11, 6, 7, 8, 3, 4, 5, 0, 1, 2]
+    SIGN = -1.0
+    # THESE ARE NOT THE TRAINED GAINS AND THAT IS A KNOWN DEVIATION. Every
+    # legged_gym-family Go2 config specifies kp 20, kd 0.5, and that is what the
+    # checkpoint assumes. Measured on THIS plant, kp 20 cannot hold the policy's
+    # own stand pose: the joints sag 0.37 rad and the base settles at 0.24 m
+    # instead of ~0.30, so the first observation the policy gets is already off
+    # its training distribution and it crouches further from there. At kp 40 /
+    # kd 2 the same scripted stand holds to 0.14 rad at 0.29 m and the policy
+    # stands and steps. Raising the gains is a workaround for a plant mismatch,
+    # not a fix for it -- see the note on the checkpoint in find_go2_policy.
+    KP = float(os.environ.get("GO2_POLICY_KP", "40.0"))
+    KD = float(os.environ.get("GO2_POLICY_KD", "2.0"))
+    CTRL_DT = 0.02               # 50 Hz policy, decimation 4 over their 200 Hz PD
+    ANG_VEL_SCALE = 0.25
+    DOF_VEL_SCALE = 0.05
+    ACTION_SCALE = 0.25
+
+    def __init__(self, system, parser, ckpt, command=(0.0, 0.0, 0.0)):
+        import numpy as np
+        import torch
+        self.np, self.torch = np, torch
+        self.DEFAULTS = np.array([0.1, 0.8, -1.5, -0.1, 0.8, -1.5,
+                                  0.1, 1.0, -1.5, -0.1, 1.0, -1.5], dtype=np.float32)
+        self.EFFORT = np.array([23.7, 23.7, 45.43] * 4)   # URDF <limit effort>
+        self.CMD_SCALE = np.array([2.0, 2.0, 0.25], dtype=np.float32)
+        self.model = torch.jit.load(str(ckpt), map_location="cpu")
+        self.model.eval()
+        self.system = system
+        self.motors, self.fns = [], []
+        for n in self.NAMES:
+            m = chrono.CastToChLinkMotorRotationTorque(parser.GetChMotor(n))
+            if m is None:
+                raise RuntimeError(f"no torque motor for {n}")
+            fn = chrono.ChFunctionConst(0.0)
+            m.SetMotorFunction(fn)
+            self.motors.append(m)
+            self.fns.append(fn)
+        self.base = parser.GetChBody("base")
+        self.command = np.array(command, dtype=np.float32)
+        self.last_actions = np.zeros(12, dtype=np.float32)
+        self.target = self.default_targets()
+        self.next_ctrl = 0.0
+        # SETTLE FIRST, THEN HAND OVER. The URDF spawns every joint at zero,
+        # which is nowhere near the pose this policy was ever shown: its
+        # observation block is (q - defaults), so at t=0 that is a whole radian
+        # of error on eight joints and the network is being asked about a robot
+        # it has never seen. Handed the scene in that state it diverges -- feet
+        # four metres up, robot inverted. A second of plain PD onto the default
+        # pose puts the first real observation inside the distribution.
+        # Their handover, not ours: ramp the joints to a stand over RAMP seconds,
+        # hold it for SETTLE, and only then let the network drive. Stepping
+        # straight to the pose, or handing over from the spawn pose, puts the
+        # first observation outside anything the policy was trained on and it
+        # diverges -- feet metres in the air within two seconds.
+        self.ramp = 0.75
+        self.settle = 0.5
+        self.q0 = None
+        # The scripted stand. Hips at 0, which is NOT the policy's own zero-action
+        # pose (+/-0.1); this is the pose their collector ramps to.
+        self.stand = self.np.array([0.0, -1.0, 1.5, 0.0, -1.0, 1.5,
+                                    0.0, -0.8, 1.5, 0.0, -0.8, 1.5])
+
+    # -- conventions ---------------------------------------------------------
+    def default_targets(self):
+        """The policy's rest pose, in Chrono joint order and Chrono's sign."""
+        out = self.np.zeros(12)
+        out[self.TO_POLICY] = self.DEFAULTS
+        return self.SIGN * out
+
+    @staticmethod
+    def _projected_gravity(q):
+        """Gravity in the base frame: what the policy uses instead of a pose."""
+        qw, qx, qy, qz = q.e0, q.e1, q.e2, q.e3
+        return [-2.0 * (qx * qz - qw * qy),
+                -2.0 * (qy * qz + qw * qx),
+                -(1.0 - 2.0 * (qx * qx + qy * qy))]
+
+    def _q(self):
+        np = self.np
+        return (np.array([m.GetMotorAngle() for m in self.motors], dtype=np.float32),
+                np.array([m.GetMotorAngleDt() for m in self.motors], dtype=np.float32))
+
+    def observe(self):
+        """ang_vel(3) | gravity(3) | command(3) | dof_pos(12) | dof_vel(12) | prev(12)"""
+        np = self.np
+        w = self.base.GetAngVelLocal()
+        ang = np.array([w.x, w.y, w.z], dtype=np.float32) * self.ANG_VEL_SCALE
+        grav = np.array(self._projected_gravity(self.base.GetRot()), dtype=np.float32)
+        cmd = self.command * self.CMD_SCALE
+        qc, qdc = self._q()
+        q = self.SIGN * qc[self.TO_POLICY]
+        qd = self.SIGN * qdc[self.TO_POLICY]
+        return np.concatenate([ang, grav, cmd, q - self.DEFAULTS,
+                               qd * self.DOF_VEL_SCALE,
+                               self.last_actions]).astype(np.float32)
+
+    # -- the two rates -------------------------------------------------------
+    def update(self):
+        """Called every physics step: policy at 50 Hz, PD underneath at step rate."""
+        t = self.system.GetChTime()
+        if self.q0 is None:
+            self.q0 = self._q()[0].astype(float)
+        if t < self.ramp:
+            a = t / self.ramp
+            self.target = self.q0 + a * (self.stand - self.q0)
+            self.next_ctrl = self.ramp + self.settle
+        elif t < self.ramp + self.settle:
+            self.target = self.stand
+            self.next_ctrl = self.ramp + self.settle
+        elif t >= self.next_ctrl:
+            self.next_ctrl = t + self.CTRL_DT
+            obs = self.torch.from_numpy(self.observe()).unsqueeze(0)
+            with self.torch.no_grad():
+                action = self.model(obs).squeeze(0).numpy().astype(self.np.float32)
+            self.last_actions = action
+            targets = action * self.ACTION_SCALE + self.DEFAULTS
+            out = self.np.zeros(12)
+            out[self.TO_POLICY] = targets
+            self.target = self.SIGN * out
+        qc, qdc = self._q()
+        tau = self.KP * (self.target - qc) - self.KD * qdc
+        tau = self.np.clip(tau, -self.EFFORT, self.EFFORT)
+        for fn, v in zip(self.fns, tau):
+            fn.SetConstant(float(v))
+
+
 def scene_go2(system):
     """A real Unitree Go2 from URDF, its joints holding a stance while you pull a leg."""
     import pychrono.parsers as parsers
+    # Contact envelope and margin, from the setup this robot's policy was
+    # collected in. Chrono's defaults are much larger, and a policy feels that
+    # as a foot that makes contact early and mushily.
+    chrono.ChCollisionModel.SetDefaultSuggestedEnvelope(0.0025)
+    chrono.ChCollisionModel.SetDefaultSuggestedMargin(0.0025)
     urdf = make_chrono_safe_urdf(GO2_URDF)
     ground = ground_plane(system)
     p = parsers.ChParserURDF(urdf)
@@ -662,7 +858,12 @@ def scene_go2(system):
     # when you pull, and the controller pulls it back when you let go, which is
     # the thing this demo exists to show.
     p.SetAllJointsActuationType(parsers.ChParserURDF.ActuationType_FORCE)
-    p.SetRootInitPose(chrono.ChFramed(chrono.ChVector3d(0, 0, 0.36), chrono.QUNIT))
+    # SPAWN CLEAR OF THE FLOOR. At the URDF's zero joint angles the legs hang
+    # straight, putting the feet 0.42 m below the base -- so the old 0.36 spawned
+    # them 6.6 cm UNDERGROUND. NSC quietly pushed them out; SMC answers a 6.6 cm
+    # penetration with a penalty force that throws the robot into the air at
+    # 4 m/s, and it lands on its back. Measured, not guessed.
+    p.SetRootInitPose(chrono.ChFramed(chrono.ChVector3d(0, 0, 0.45), chrono.QUNIT))
     p.PopulateSystem(system)
 
     # ChParserURDF builds collision models but leaves collision DISABLED on every
@@ -705,22 +906,35 @@ def scene_go2(system):
             cm.SetFamily(ROBOT_FAMILY)
             cm.SetFamilyMask(~(1 << ROBOT_FAMILY) & 0x7FFF)   # signed short
 
-    # A stance, held by the joint motors. This stands in for a locomotion policy:
-    # the point of the demo is that something is actively holding a pose while a
-    # human pulls on it, not which controller is doing the holding.
-    STANCE = globals().get("GO2_STANCE", {"hip": 0.0, "thigh": 0.9, "calf": -1.8})
-    holders = []
-    for leg in ("FL", "FR", "RL", "RR"):
-        for joint, angle in STANCE.items():
-            m = p.GetChMotor(f"{leg}_{joint}_joint")
-            # GetChMotor hands back the ChLinkMotor base, which only carries
-            # Set/GetMotorFunction; the angle readings live on the rotation type.
-            m = chrono.CastToChLinkMotorRotationTorque(m) if m else None
-            if m:
-                fn = chrono.ChFunctionConst(0.0)
-                m.SetMotorFunction(fn)          # for a torque motor this IS the torque
-                holders.append(StanceHolder(m, fn, angle))
-    system.stance_holders = holders     # the loop ticks these every step
+    # What holds the robot up. A trained locomotion policy if there is one, and
+    # the difference is not cosmetic: a stance holder can only stiffen, so a
+    # shove either fails to move it or tips it over, while a policy can pick a
+    # foot up and step into the push. Everything downstream is unchanged --
+    # both are ticked by the loop through system.stance_holders.
+    ckpt = find_go2_policy() if globals().get("GO2_CONTROL", "policy") == "policy" else None
+    if ckpt:
+        try:
+            system.stance_holders = [Go2Policy(system, p, ckpt)]
+            print(f"[go2] locomotion policy: {os.path.basename(ckpt)}")
+            hint = "drag a leg; the policy steps to keep its feet"
+        except Exception as exc:
+            print(f"[go2] policy unavailable ({exc}); falling back to the stance PD")
+            ckpt = None
+    if not ckpt:
+        STANCE = globals().get("GO2_STANCE", {"hip": 0.0, "thigh": 0.9, "calf": -1.8})
+        holders = []
+        for leg in ("FL", "FR", "RL", "RR"):
+            for joint, angle in STANCE.items():
+                m = p.GetChMotor(f"{leg}_{joint}_joint")
+                # GetChMotor hands back the ChLinkMotor base, which only carries
+                # Set/GetMotorFunction; the angle readings live on the rotation type.
+                m = chrono.CastToChLinkMotorRotationTorque(m) if m else None
+                if m:
+                    fn = chrono.ChFunctionConst(0.0)
+                    m.SetMotorFunction(fn)      # for a torque motor this IS the torque
+                    holders.append(StanceHolder(m, fn, angle))
+        system.stance_holders = holders   # the loop ticks these every step
+        hint = "drag a leg; the joint motors fight you and pull it back"
     # "hip" was missing, so the four shoulder links were not reachable by either
     # path -- they have no collision geometry to raycast AND they were not in the
     # list pick_near_ray searches. Adding a name here costs nothing physically:
@@ -729,8 +943,7 @@ def scene_go2(system):
                  if any(k in b.GetName()
                         for k in ("hip", "calf", "thigh", "foot", "base"))]
     base = [b for b in system.GetBodies() if b.GetName() == "base"][0]
-    return (grabbable, 0.9,
-            "drag a leg; the joint motors fight you and pull it back", base)
+    return grabbable, 0.9, hint, base
 
 
 def scene_arm(system, actuated=True):
@@ -874,7 +1087,16 @@ def make_chrono_safe_urdf(path):
 
     1. Links with no <inertial>.  The Go2 has eight, collision-only cylinders
        bolted to the calves, and the parser SEGFAULTS on them rather than
-       complaining.  Dropped here, along with the joints that reference them.
+       complaining.  They are GIVEN a tiny inertial rather than deleted.
+
+       Deleting them was the obvious fix and it is wrong. Those eight are the
+       `calflower` links: the lower shin, and the foot hangs off the end of
+       them. Drop the link and the joint that references it and the foot
+       re-attaches higher up, so the robot is standing on a leg shorter than the
+       one any Go2 policy was ever trained on -- which is invisible until you
+       put a trained policy on it and it crouches instead of standing. A gram
+       and a 1e-6 inertia keeps the chain, keeps the geometry, and is small
+       enough not to matter dynamically.
     2. Collada visuals.  Chrono reads meshes with tiny_obj, so a .dae is fed to
        a Wavefront parser, fails, and then segfaults.  The visual meshes are
        dropped and the collision primitives are drawn instead -- this URDF
@@ -884,15 +1106,17 @@ def make_chrono_safe_urdf(path):
     import re, os
     src = open(path).read()
     out = src
+    TINY = ('<inertial><origin xyz="0 0 0" rpy="0 0 0"/>'
+            '<mass value="0.001"/>'
+            '<inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>'
+            '</inertial>')
     drop = []
     for block in re.findall(r"<link\b.*?</link>", src, re.S):
         name = re.search(r'name="([^"]+)"', block).group(1)
         if "<inertial" not in block:
             drop.append(name)
-            out = out.replace(block, "")
-    for joint in re.findall(r"<joint\b.*?</joint>", out, re.S):
-        if any(f'"{d}"' in joint for d in drop):
-            out = out.replace(joint, "")
+            fixed = block.replace("</link>", TINY + "</link>")
+            out = out.replace(block, fixed)
     # Collada visuals: Chrono reads every mesh with tiny_obj, so a .dae reaches a
     # Wavefront parser and segfaults. If an .obj of the same name has been
     # converted next door, point at that; otherwise drop the visual and fall back
@@ -915,7 +1139,8 @@ def make_chrono_safe_urdf(path):
     safe = os.path.join(os.path.dirname(path), "_chrono_safe.urdf")
     open(safe, "w").write(out)
     if drop:
-        print(f"[urdf] dropped {len(drop)} inertia-less links Chrono segfaults on ({drop[0]}, ...)")
+        print(f"[urdf] gave {len(drop)} inertia-less links a token inertial "
+              f"so the chain survives ({drop[0]}, ...)")
     if swapped:
         print(f"[urdf] using {swapped} converted .obj visual meshes")
     if meshes:
