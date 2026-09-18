@@ -12,6 +12,7 @@
 # Build the tutorial deck.
 #
 #     python3 make_slides.py            rebuild tutorial_HIL_driver.pptx
+#     python3 make_slides.py --pdf       rebuild, then export the PDF too
 #     python3 make_slides.py --check     resolve every anchor, print the ranges,
 #                                        write nothing
 #
@@ -27,6 +28,15 @@
 # --check is the cheap version of that promise: it resolves every anchor and
 # prints what it found, so a broken quote shows up as a failure here instead of
 # on a projector.
+#
+# THE PDF EXPORT, WHICH IS FUSSIER THAN IT LOOKS
+#
+# PowerPoint for Mac has no `save` command on its `presentation` class -- check
+# `sdef /Applications/Microsoft\ PowerPoint.app` and you will not find one. So
+# AppleScript accepts `save ... as save as PDF`, reports success, and writes
+# nothing at all. It only works if the destination is passed as a `POSIX file`
+# OBJECT. A POSIX path string, or one coerced with `as text`, silently no-ops.
+# That one distinction is the whole trick, so --pdf is here to keep it.
 # =============================================================================
 
 import argparse
@@ -796,13 +806,57 @@ def build(check_only=False):
         print(f"       cited {k:10s} lines {lo} to {hi}")
 
 
+def export_pdf():
+    """Drive PowerPoint to write the PDF, then strip the metadata it adds."""
+    import subprocess
+    import tempfile
+
+    script = tempfile.NamedTemporaryFile("w", suffix=".scpt", delete=False)
+    script.write('''on run argv
+    set srcPath to item 1 of argv
+    set dstPath to item 2 of argv
+    tell application "Microsoft PowerPoint"
+        activate
+        open POSIX file srcPath
+        delay 3
+        set pres to active presentation
+        -- POSIX file OBJECT, not a path string: a string here silently does nothing
+        save pres in (POSIX file dstPath) as save as PDF
+        delay 2
+        close pres saving no
+    end tell
+end run
+''')
+    script.close()
+    raw = os.path.join(HERE, "_deck_raw.pdf")
+    subprocess.run(["osascript", script.name, DECK, raw], check=True)
+    os.unlink(script.name)
+    if not os.path.exists(raw):
+        raise SystemExit("[pdf] PowerPoint wrote nothing")
+
+    import pymupdf
+    d = pymupdf.open(raw)
+    d.set_metadata({})          # the export carries Quartz/template metadata
+    d.del_xml_metadata()
+    out = DECK.replace(".pptx", ".pdf")
+    d.save(out, garbage=4, deflate=True)
+    pages = d.page_count
+    d.close()
+    os.unlink(raw)
+    print(f"[pdf] {pages} pages -> {out}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true",
                     help="resolve every anchor and print the ranges; write nothing")
+    ap.add_argument("--pdf", action="store_true",
+                    help="also export tutorial_HIL_driver.pdf via PowerPoint")
     args = ap.parse_args()
     try:
         build(check_only=args.check)
     except AnchorError as exc:
         print(f"[anchor] {exc}", file=sys.stderr)
         sys.exit(1)
+    if args.pdf and not args.check:
+        export_pdf()
