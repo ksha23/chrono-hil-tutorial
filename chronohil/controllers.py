@@ -12,6 +12,23 @@
 
 from .chrono_env import chrono
 
+def joint_readers(motor):
+    """(position, velocity) readers for a motor, whichever kind it is.
+
+    A revolute joint answers GetMotorAngle and a prismatic one GetMotorPos, and
+    a controller written for one silently does nothing for the other. That is
+    not hypothetical: the Panda's two finger joints are PRISMATIC, the damper
+    loop only ever cast to a rotation motor, so the fingers got no control at
+    all -- and ChLinkMotorLinear does not enforce the URDF's travel limits
+    either, so they slid along their own axis under gravity and left the hand
+    at 3.96 m/s, 80 cm away inside three seconds. A small piece visibly shooting
+    off the arm.
+    """
+    if hasattr(motor, "GetMotorAngle"):
+        return motor.GetMotorAngle, motor.GetMotorAngleDt
+    return motor.GetMotorPos, motor.GetMotorPosDt
+
+
 class LimpJoint:
     """An unactuated joint: no control at all, only bearing friction.
 
@@ -26,9 +43,10 @@ class LimpJoint:
 
     def __init__(self, motor, fn, target):
         self.motor, self.fn, self.target = motor, fn, target
+        self.pos, self.vel = joint_readers(motor)
 
     def update(self):
-        tau = -self.KD * self.motor.GetMotorAngleDt()
+        tau = -self.KD * self.vel()
         self.fn.SetConstant(max(-self.TAU_MAX, min(self.TAU_MAX, tau)))
 
 
@@ -59,12 +77,13 @@ class FreeDriveJoint:
 
     def __init__(self, motor, fn, target):
         self.motor, self.fn, self.target = motor, fn, target
+        self.pos, self.vel = joint_readers(motor)
 
     def update(self):
-        q = self.motor.GetMotorAngle()
+        q = self.pos()
         if FreeDriveJoint.guiding:
             self.target += (q - self.target) * self.FOLLOW
-        tau = self.KP * (self.target - q) - self.KD * self.motor.GetMotorAngleDt()
+        tau = self.KP * (self.target - q) - self.KD * self.vel()
         self.fn.SetConstant(max(-self.TAU_MAX, min(self.TAU_MAX, tau)))
 
 

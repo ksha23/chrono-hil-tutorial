@@ -14,7 +14,8 @@ import os
 
 from .chrono_env import chrono
 from .config import GRAB_OMEGA
-from .controllers import FreeDriveJoint, LimpJoint, StanceHolder
+from .controllers import (FreeDriveJoint, LimpJoint, StanceHolder,
+                          joint_readers)
 from .policy import Go2Policy, find_go2_policy
 from .paths import FRANKA_URDF, GO2_URDF as _GO2_URDF_DEFAULT
 from .urdf import make_chrono_safe_urdf
@@ -245,12 +246,24 @@ def scene_arm(system, actuated=True):
     # pendulum and never settles.
     dampers = []
     for link in system.GetLinks():
-        m = chrono.CastToChLinkMotorRotationTorque(p.GetChMotor(link.GetName()))
+        raw = p.GetChMotor(link.GetName())
+        # BOTH kinds. The arm's seven joints are revolute and the gripper's two
+        # are prismatic, and casting only to the rotation type skips the fingers
+        # entirely -- see joint_readers() for what that looked like on screen.
+        m = (chrono.CastToChLinkMotorRotationTorque(raw)
+             or chrono.CastToChLinkMotorLinearForce(raw))
         if m:
             fn = chrono.ChFunctionConst(0.0)
             m.SetMotorFunction(fn)
-            cls = FreeDriveJoint if actuated else LimpJoint
-            dampers.append(cls(m, fn, m.GetMotorAngle()))
+            pos, _ = joint_readers(m)
+            # The gripper holds shut in BOTH modes. "Unactuated" is a statement
+            # about the seven arm joints, which is what the demo is about; a
+            # dead gripper does not slide open and shed its fingers, and this
+            # one would, because ChLinkMotorLinear ignores the URDF's travel
+            # limits and damping alone does not hold a position.
+            prismatic = chrono.CastToChLinkMotorLinearForce(raw) is not None
+            cls = FreeDriveJoint if (actuated or prismatic) else LimpJoint
+            dampers.append(cls(m, fn, pos()))
     system.stance_holders = dampers
 
     # Everything you can SEE, not just the bodies named panda_link. The gripper
