@@ -14,8 +14,8 @@ import os
 
 from .chrono_env import chrono
 from .config import GRAB_OMEGA
-from .controllers import (FreeDriveJoint, LimpJoint, StanceHolder,
-                          joint_readers)
+from .controllers import (FreeDriveJoint, LimpJoint, LockedJoint,
+                          StanceHolder, joint_readers)
 from .policy import Go2Policy, find_go2_policy
 from .paths import FRANKA_URDF, GO2_URDF as _GO2_URDF_DEFAULT
 from .urdf import make_chrono_safe_urdf
@@ -262,7 +262,13 @@ def scene_arm(system, actuated=True):
             # one would, because ChLinkMotorLinear ignores the URDF's travel
             # limits and damping alone does not hold a position.
             prismatic = chrono.CastToChLinkMotorLinearForce(raw) is not None
-            cls = FreeDriveJoint if (actuated or prismatic) else LimpJoint
+            # The gripper is LOCKED, not free-driven. FreeDriveJoint's target
+            # follows the joint while you are dragging, which is what makes the
+            # ARM posable by hand -- and what walked the fingers shut by 16.63 mm
+            # over twelve seconds of dragging, monotonically, because the creep
+            # never reverses.
+            cls = (LockedJoint if prismatic
+                   else (FreeDriveJoint if actuated else LimpJoint))
             dampers.append(cls(m, fn, pos()))
     system.stance_holders = dampers
 

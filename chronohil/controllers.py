@@ -87,6 +87,32 @@ class FreeDriveJoint:
         self.fn.SetConstant(max(-self.TAU_MAX, min(self.TAU_MAX, tau)))
 
 
+class LockedJoint:
+    """Holds one joint exactly where it started, and never gives ground.
+
+    FreeDriveJoint deliberately lets its target creep toward the joint's actual
+    position while something is being held, which is what makes the arm posable
+    by hand. Applied to the gripper that is a bug with a plausible face: every
+    drag poses the FINGERS a little too, the creep never reverses, and the
+    gripper walks shut. Measured at 16.63 mm after twelve seconds of swinging
+    the arm around, and still moving.
+
+    So the fingers get this instead. Same idea, no follow term.
+    """
+
+    KP = 2000.0    # N per m -- the fingers are 0.1 kg, so this is stiff
+    KD = 20.0      # N per m/s
+    F_MAX = 70.0   # N, the Panda gripper's own grasp force
+
+    def __init__(self, motor, fn, target):
+        self.motor, self.fn, self.target = motor, fn, target
+        self.pos, self.vel = joint_readers(motor)
+
+    def update(self):
+        f = self.KP * (self.target - self.pos()) - self.KD * self.vel()
+        self.fn.SetConstant(max(-self.F_MAX, min(self.F_MAX, f)))
+
+
 class StanceHolder:
     """One joint's PD law: the stand-in for a locomotion policy.
 
