@@ -377,11 +377,16 @@ def place_shots(slide, shots, top=3.15, height=2.55):
     if not paths:
         return
     from PIL import Image as _Im
-    widths = []
+    gap = 0.30
+    aspects = []
     for q in paths:
         iw, ih = _Im.open(q).size
-        widths.append(height * iw / float(ih))
-    gap = 0.30
+        aspects.append(iw / float(ih))
+    # A row of four would happily run off both edges at a fixed height, so the
+    # height is whatever makes the row fit the usable width.
+    usable = 12.40 - gap * (len(paths) - 1)
+    height = min(height, usable / sum(aspects))
+    widths = [height * a for a in aspects]
     x = (13.33 - (sum(widths) + gap * (len(widths) - 1))) / 2.0
     for q, w in zip(paths, widths):
         slide.shapes.add_picture(q, Inches(x), Inches(top), Inches(w), Inches(height))
@@ -595,7 +600,7 @@ def build(check_only=False):
              "resists, and a Franka arm with the motors on or off.",
              "4.  `How hard can you shove it.` A measured impulse at a point you "
              "choose, and the magnitude where recovery stops."],
-            shots=["demo_go2.png", "demo_arm.png", "demo_push.png"],
+            shots=["hmmwv.png", "demo_go2.png", "demo_arm.png", "demo_push.png"],
             note=["Two of them are a person inside the loop, one is a person "
                   "setting up an experiment and watching, and the first one has no "
                   "human in it at all. That distinction is the next slide."])
