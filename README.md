@@ -284,6 +284,71 @@ INPUT_SOURCE = "udp"
 REALTIME = "vehicle"      # falls back to "per_step" when there is no vehicle
 ```
 
+## Part 9: reach into the scene (hil_manipulate.py)
+
+Parts 1-8 put a person in the *control* loop. This is the other thing people
+want a human for, and it is not the same: pushing a robot to see whether its
+controller recovers, dragging an object somewhere and recording where you put
+it, moving a limp arm by hand.
+
+Chrono ships **no click-and-drag manipulator**. The mouse in both the Irrlicht
+and VSG backends is wired to the camera, and the one Irrlicht picking call in
+the tree is a commented-out line in `ChIrrCamera.cpp`. But the primitives are
+all there, and `hil_manipulate.py` is the twenty lines that assemble them:
+
+| piece | what it does |
+|---|---|
+| `ChCollisionSystem::RayHit()` | pick a body along a ray, the way a click would |
+| `ChRayhitResult.hitModel` | `-> GetContactable() -> CastToChBody()` |
+| `ChLinkTSDA` | a stiff, damped rubber band from a handle body to the pick point |
+
+Dragging with a spring instead of teleporting is the point: the body still
+collides, still carries momentum, and a controller holding it still fights back.
+
+```bash
+python hil_manipulate.py go2      # and operator_console.py in a second terminal
+python hil_manipulate.py arm
+python hil_manipulate.py place
+```
+
+| mode | what it shows |
+|---|---|
+| `go2` | a real Unitree Go2 from URDF, joint motors holding a stance while you haul a leg out of it |
+| `arm` | a three-link arm with no motors at all -- limp, and it stays where you leave it |
+| `place` | kinematic placement: the pose is *set*, not pushed, and `T` logs it to `placement_place.log` |
+
+Input comes from `operator_console.py` over UDP, unchanged -- arrows move the
+handle, `[` and `]` raise and lower it, `Z` grabs, `X` cycles the selection, `T`
+logs a pose. That is not a design flourish: **PyChrono cannot read the Irrlicht
+window at all.** `irr::IEventReceiver` is exposed but abstract with no
+constructor (SWIG directors are off), and `device.getCursorControl()` returns an
+unwrapped `SwigPyObject`. No keyboard, no mouse. Part 4's socket was already the
+answer.
+
+The Go2 comes from [wty-yy/go2_rl_gym](https://github.com/wty-yy/go2_rl_gym)
+and is not shipped here (`go2_assets/` is gitignored):
+
+```bash
+git clone https://github.com/wty-yy/go2_rl_gym
+export GO2_URDF=go2_rl_gym/resources/robots/go2/urdf/go2.urdf
+```
+
+Three things about that URDF cost real time, and the script handles all of them:
+
+- **Eight links have no `<inertial>`** (collision-only cylinders on the calves).
+  Chrono's parser *segfaults* on them rather than complaining. They are stripped.
+- **The visual meshes are Collada.** Chrono reads meshes with `tiny_obj`, so a
+  `.dae` goes to a Wavefront parser and segfaults. They are stripped and the
+  collision primitives drawn instead -- 5 boxes, 17 cylinders, 5 spheres.
+- **`ChParserURDF` leaves collision *disabled*** on every body it creates, so
+  the robot drops silently through the floor. It is enabled on the feet only;
+  enabling it everywhere makes adjacent links fight and the robot tears itself
+  apart.
+
+The stance is held by position motors rather than a learned policy. Swapping in
+the repo's pretrained `.pt` would need torch plus that policy's exact
+observation layout; the demo is about the perturbation, not the controller.
+
 ## Things to try
 
 - `REALTIME = "none"` with `step_size = 5e-4`: RTF goes above 1 and no timer can save you.

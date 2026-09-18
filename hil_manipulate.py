@@ -1,0 +1,456 @@
+# =============================================================================
+# PROJECT CHRONO - http://projectchrono.org
+#
+# Copyright (c) 2026 projectchrono.org
+# All rights reserved.
+#
+# Use of this source code is governed by a BSD-style license that can be found
+# in the LICENSE file at the top level of the distribution and at
+# http://projectchrono.org/license-chrono.txt.
+#
+# =============================================================================
+# PART 9: the other kind of human-in-the-loop -- reaching into the scene.
+#
+# Parts 1-8 put a person in the control loop of a plant: three numbers in,
+# state out.  This is the other thing people want a human for, and it is not
+# the same thing:
+#
+#     "push the robot and see whether the controller recovers"
+#     "drag this object over there and tell me where you put it"
+#     "grab that link and move the arm by hand"
+#
+# Here the human perturbs the WORLD rather than driving the plant.  Chrono has
+# no built-in click-and-drag manipulator -- the mouse in both the Irrlicht and
+# VSG backends is wired to the camera, and the one Irrlicht picking call in the
+# tree is a commented-out line in ChIrrCamera.cpp.  But every primitive is
+# there, and this file is the twenty lines that put them together:
+#
+#     ChCollisionSystem::RayHit()   pick a body along a ray
+#     ChRayhitResult.hitModel       -> GetContactable() -> CastToChBody()
+#     ChLinkTSDA                    a rubber band from a handle to the body
+#
+# Dragging with a spring rather than teleporting is the whole point: the body
+# still collides, still has momentum, and a controller holding it still fights
+# back.  That is what makes it a robustness test rather than a cheat.
+#
+# WHY THERE IS NO KEYBOARD HERE.  PyChrono cannot read the Irrlicht window's
+# keyboard: irr::IEventReceiver is exposed but abstract with no constructor
+# (SWIG directors are off), and device.getCursorControl() hands back an
+# unwrapped SwigPyObject.  So there is no mouse and no keys from Python.  That
+# turns out not to matter, because PART 4 already solved it: operator_console.py
+# sends input over UDP and needs no changes at all to drive this.
+#
+#     python hil_manipulate.py go2      # and operator_console.py in terminal 2
+#     python hil_manipulate.py arm
+#     python hil_manipulate.py place
+#
+# CONTROLS (all from operator_console.py, unchanged)
+#     arrow keys   move the grab handle: up/down = X, left/right = Y
+#     ] and [      move it up and down in Z
+#     Z            grab / release the selected body
+#     X            cycle which body is selected
+#     C            reset the scene
+#     T            log the selected body's pose (the placement workflow)
+# =============================================================================
+
+import math
+import os
+import socket
+import sys
+import time
+
+import pychrono as chrono
+import pychrono.irrlicht as irr
+
+UDP_PORT = 9870
+STEP = 2e-3
+RENDER_FPS = 50
+HANDLE_SPEED = 1.2        # m/s at full stick
+SPRING_K = 4000.0
+SPRING_C = 120.0
+
+
+# -----------------------------------------------------------------------------
+# The PART 4 input path, unchanged in spirit: levels are held, commands are drained
+# -----------------------------------------------------------------------------
+class Console:
+    def __init__(self, port=UDP_PORT):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("0.0.0.0", port))
+        self.sock.setblocking(False)
+        self.last = (0.0, 0.0, 0.0)
+        self.commands = []
+        self.addr = None
+        print(f"[udp] listening on {port} - now run:  python operator_console.py")
+
+    def poll(self):
+        while True:
+            try:
+                data, addr = self.sock.recvfrom(256)
+            except BlockingIOError:
+                break
+            f = data.decode().split(",")
+            if len(f) < 3:
+                continue
+            try:
+                self.last = tuple(float(x) for x in f[:3])
+            except ValueError:
+                continue
+            self.addr = addr
+            if len(f) > 3 and f[3] and f[3] != "-":
+                self.commands.append(f[3][0])
+        return self.last
+
+    def take_commands(self):
+        c, self.commands = self.commands, []
+        return c
+
+    def send(self, text):
+        if self.addr:
+            self.sock.sendto(text.encode(), self.addr)
+
+
+# -----------------------------------------------------------------------------
+# Picking and grabbing
+# -----------------------------------------------------------------------------
+def pick_along_ray(system, start, end):
+    """The primitive a mouse click would use. Returns (body, world_point) or None."""
+    res = chrono.ChRayhitResult()
+    system.GetCollisionSystem().RayHit(start, end, res)
+    if not res.hit:
+        return None
+    body = chrono.CastToChBody(res.hitModel.GetContactable())
+    if body is None:
+        return None
+    p = res.abs_hitPoint
+    return body, chrono.ChVector3d(p.x, p.y, p.z)
+
+
+def pick_at_crosshair(system, vis, reach=50.0):
+    """Ray from the camera through the centre of the view. With a wrapped mouse
+    this would be getRayFromScreenCoordinates(cursor) instead; the rest is the same."""
+    eye = vis.GetCameraPosition()
+    tgt = vis.GetCameraTarget()
+    d = tgt - eye
+    n = d.Length()
+    if n < 1e-9:
+        return None
+    d = d / n
+    return pick_along_ray(system, eye, eye + d * reach)
+
+
+class Grabber:
+    """A handle body and a stiff spring to whatever is being held."""
+
+    def __init__(self, system):
+        self.system = system
+        self.handle = chrono.ChBody()
+        self.handle.SetFixed(True)
+        self.handle.EnableCollision(False)
+        self.handle.SetName("grab handle")
+        marker = chrono.ChVisualShapeSphere(0.04)
+        marker.SetColor(chrono.ChColor(1.0, 0.25, 0.1))
+        self.handle.AddVisualShape(marker)
+        system.AddBody(self.handle)
+        self.spring = None
+        self.body = None
+
+    def grab(self, body, point):
+        self.release()
+        self.body = body
+        self.handle.SetPos(point)
+        self.spring = chrono.ChLinkTSDA()
+        self.spring.Initialize(self.handle, body, False, point, point)
+        self.spring.SetRestLength(0.0)
+        self.spring.SetSpringCoefficient(SPRING_K)
+        self.spring.SetDampingCoefficient(SPRING_C)
+        self.system.AddLink(self.spring)
+
+    def release(self):
+        if self.spring is not None:
+            self.system.RemoveLink(self.spring)
+            self.spring = None
+        self.body = None
+
+    def held(self):
+        return self.spring is not None
+
+    def move(self, dx, dy, dz):
+        p = self.handle.GetPos()
+        self.handle.SetPos(chrono.ChVector3d(p.x + dx, p.y + dy, p.z + dz))
+
+    def force(self):
+        return abs(self.spring.GetForce()) if self.spring else 0.0
+
+
+# -----------------------------------------------------------------------------
+# Scenes
+# -----------------------------------------------------------------------------
+def ground_plane(system, size=20.0):
+    mat = chrono.ChContactMaterialNSC()
+    mat.SetFriction(0.8)
+    g = chrono.ChBodyEasyBox(size, size, 1.0, 1000, True, True, mat)
+    g.SetPos(chrono.ChVector3d(0, 0, -0.5))
+    g.SetFixed(True)
+    g.GetVisualShape(0).SetTexture(chrono.GetChronoDataFile("textures/concrete.jpg"), 8, 8)
+    system.AddBody(g)
+    return g
+
+
+def scene_go2(system):
+    """A real Unitree Go2 from URDF, its joints holding a stance while you pull a leg."""
+    import pychrono.parsers as parsers
+    urdf = make_chrono_safe_urdf(GO2_URDF)
+    ground_plane(system)
+    p = parsers.ChParserURDF(urdf)
+    p.EnableCollisionVisualization()       # the visual meshes were stripped above
+    # Without this the parsed bodies get no contact material and the robot falls
+    # straight through the floor -- silently, since nothing warns about it.
+    feet = chrono.ChContactMaterialData()
+    feet.mu = 0.8
+    feet.cr = 0.0
+    p.SetDefaultContactMaterial(feet)
+    p.SetAllJointsActuationType(parsers.ChParserURDF.ActuationType_POSITION)
+    p.SetRootInitPose(chrono.ChFramed(chrono.ChVector3d(0, 0, 0.36), chrono.QUNIT))
+    p.PopulateSystem(system)
+
+    # ChParserURDF builds collision models but leaves collision DISABLED on every
+    # body, so the robot falls through the floor without a word. Turn it on for the
+    # feet only: enabling it everywhere makes adjacent links collide with each
+    # other and the robot tears itself apart.
+    for b in system.GetBodies():
+        if b.GetName().endswith("_foot"):
+            b.EnableCollision(True)
+
+    # A stance, held by the joint motors. This stands in for a locomotion policy:
+    # the point of the demo is that something is actively holding a pose while a
+    # human pulls on it, not which controller is doing the holding.
+    STANCE = {"hip": 0.0, "thigh": 0.9, "calf": -1.8}
+    for leg in ("FL", "FR", "RL", "RR"):
+        for joint, angle in STANCE.items():
+            m = p.GetChMotor(f"{leg}_{joint}_joint")
+            if m:
+                m.SetMotorFunction(chrono.ChFunctionConst(angle))
+    grabbable = [b for b in system.GetBodies()
+                 if any(k in b.GetName() for k in ("calf", "thigh", "foot", "base"))]
+    return grabbable, 0.9, "drag a leg; the joint motors fight you and pull it back"
+
+
+def scene_arm(system):
+    """A passive serial arm: no motors at all, so it moves only because you move it."""
+    ground_plane(system, 10.0)
+    mat = chrono.ChContactMaterialNSC()
+    prev = chrono.ChBodyEasyCylinder(chrono.ChAxis_Z, 0.12, 0.20, 2000, True, False, mat)
+    prev.SetPos(chrono.ChVector3d(0, 0, 0.10))
+    prev.SetFixed(True)
+    system.AddBody(prev)
+    z = 0.20
+    grabbable = []
+    for i, length in enumerate((0.45, 0.40, 0.30)):
+        link = chrono.ChBodyEasyBox(0.09, 0.09, length, 800, True, True, mat)
+        link.SetPos(chrono.ChVector3d(0, 0, z + length / 2))
+        link.SetName(f"link{i+1}")
+        system.AddBody(link)
+        joint = chrono.ChLinkLockRevolute()
+        axis = chrono.QuatFromAngleX(math.pi / 2) if i % 2 == 0 else chrono.QuatFromAngleY(math.pi / 2)
+        joint.Initialize(prev, link, chrono.ChFramed(chrono.ChVector3d(0, 0, z), axis))
+        system.AddLink(joint)
+        prev, z = link, z + length
+        grabbable.append(link)
+    return grabbable, 1.4, "no motors anywhere: the arm is limp and moves only where you put it"
+
+
+def scene_place(system):
+    """Kinematic placement: the body is moved directly, not pushed. No physics on it."""
+    ground_plane(system, 30.0)
+    mat = chrono.ChContactMaterialNSC()
+    for i, (x, y) in enumerate(((3.0, 2.0), (-2.5, 3.5), (1.0, -3.0))):
+        cone = chrono.ChBodyEasyCylinder(chrono.ChAxis_Z, 0.25, 0.7, 500, True, True, mat)
+        cone.SetPos(chrono.ChVector3d(x, y, 0.35))
+        cone.SetFixed(True)
+        cone.GetVisualShape(0).SetColor(chrono.ChColor(0.9, 0.5, 0.05))
+        system.AddBody(cone)
+
+    body = chrono.ChBodyEasyBox(1.9, 0.9, 0.7, 600, True, False, mat)
+    body.SetPos(chrono.ChVector3d(0, 0, 0.35))
+    body.SetFixed(True)                      # kinematic: we set its pose outright
+    body.SetName("vehicle")
+    body.GetVisualShape(0).SetColor(chrono.ChColor(0.15, 0.35, 0.75))
+    system.AddBody(body)
+    return [body], 3.0, "kinematic placement: pose is set directly, and T logs it"
+
+
+GO2_URDF = None          # filled in by main() from --urdf or the default path
+
+
+def make_chrono_safe_urdf(path):
+    """Two things in a stock Go2 URDF that Chrono cannot take.
+
+    1. Links with no <inertial>.  The Go2 has eight, collision-only cylinders
+       bolted to the calves, and the parser SEGFAULTS on them rather than
+       complaining.  Dropped here, along with the joints that reference them.
+    2. Collada visuals.  Chrono reads meshes with tiny_obj, so a .dae is fed to
+       a Wavefront parser, fails, and then segfaults.  The visual meshes are
+       dropped and the collision primitives are drawn instead -- this URDF
+       describes itself in 5 boxes, 17 cylinders and 5 spheres, which is blocky
+       but complete, and it is the physics we are here to push on anyway.
+    """
+    import re, os
+    src = open(path).read()
+    out = src
+    drop = []
+    for block in re.findall(r"<link\b.*?</link>", src, re.S):
+        name = re.search(r'name="([^"]+)"', block).group(1)
+        if "<inertial" not in block:
+            drop.append(name)
+            out = out.replace(block, "")
+    for joint in re.findall(r"<joint\b.*?</joint>", out, re.S):
+        if any(f'"{d}"' in joint for d in drop):
+            out = out.replace(joint, "")
+    # Collada visuals: Chrono would hand them to tiny_obj and segfault.
+    meshes = 0
+    for vis_block in re.findall(r"<visual>.*?</visual>", out, re.S):
+        fn = re.search(r'filename="([^"]+)"', vis_block)
+        if fn and not fn.group(1).lower().endswith(".obj"):
+            out = out.replace(vis_block, "")
+            meshes += 1
+    safe = os.path.join(os.path.dirname(path), "_chrono_safe.urdf")
+    open(safe, "w").write(out)
+    if drop:
+        print(f"[urdf] dropped {len(drop)} inertia-less links Chrono segfaults on ({drop[0]}, ...)")
+    if meshes:
+        print(f"[urdf] dropped {meshes} non-OBJ visual meshes; drawing collision shapes instead")
+    return safe
+
+
+# -----------------------------------------------------------------------------
+# The loop: the same shape as every other part of this tutorial
+# -----------------------------------------------------------------------------
+SCENES = {"go2": scene_go2, "arm": scene_arm, "place": scene_place}
+
+
+def main(mode, headless_script=None):
+    system = chrono.ChSystemNSC()
+    system.SetGravitationalAcceleration(chrono.ChVector3d(0, 0, -9.81))
+    system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
+    system.SetSleepingAllowed(False)     # a resting body would sleep through the spring
+
+    grabbable, chase, hint = SCENES[mode](system)
+    kinematic = (mode == "place")
+    grabber = None if kinematic else Grabber(system)
+
+    vis = irr.ChVisualSystemIrrlicht()
+    vis.AttachSystem(system)
+    vis.SetCameraVertical(chrono.CameraVerticalDir_Z)   # the world is Z-up
+    vis.SetWindowTitle(f"PART 9: {mode} - reach into the scene")
+    vis.SetWindowSize(1280, 800)
+    vis.Initialize()
+    vis.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
+    vis.AddTypicalLights()
+    vis.AddSkyBox()
+    vis.AddCamera(chrono.ChVector3d(chase * 1.6, -chase * 2.0, chase * 1.1),
+                  chrono.ChVector3d(0, 0, 0.3))
+
+    console = Console() if headless_script is None else None
+    sel = 0
+    held = False
+    system.DoStepDynamics(STEP)          # the collision system must exist to raycast
+
+    print(f"\n{hint}")
+    print("  arrows move  |  [ ] up/down  |  Z grab/release  |  X select  |  T log pose  |  C reset\n")
+
+    render_every = max(1, int(round(1.0 / (RENDER_FPS * STEP))))
+    fired = set()
+    n = 0
+    t0 = time.perf_counter()
+    while vis.Run():
+        t = system.GetChTime()
+        if headless_script is not None:
+            if t > headless_script["until"]:
+                break
+            s, th, br = headless_script["inputs"](t)
+            cmds = [c for (at, c) in headless_script["commands"] if at <= t and (at, c) not in fired]
+            fired.update((at, c) for (at, c) in headless_script["commands"] if at <= t)
+        else:
+            s, th, br = console.poll()
+            cmds = console.take_commands()
+
+        for c in cmds:
+            if c == "n":
+                sel = (sel + 1) % len(grabbable)
+                print(f"[select] {grabbable[sel].GetName()}")
+            elif c == "f":
+                if kinematic:
+                    pass
+                elif held:
+                    grabber.release(); held = False; print("[release]")
+                else:
+                    body = grabbable[sel]
+                    grabber.grab(body, body.GetPos()); held = True
+                    print(f"[grab] {body.GetName()}")
+            elif c == "m":
+                b = grabbable[sel]
+                p, q = b.GetPos(), b.GetRot()
+                yaw = math.degrees(math.atan2(2*(q.e0*q.e3 + q.e1*q.e2),
+                                              1 - 2*(q.e2*q.e2 + q.e3*q.e3)))
+                line = f"[pose] {b.GetName()}  x={p.x:+.3f} y={p.y:+.3f} z={p.z:+.3f} yaw={yaw:+.1f}deg"
+                print(line)
+                log = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                   f"placement_{mode}.log")
+                with open(log, "a") as fh:
+                    fh.write(f"{t:8.3f}  {line}\n")
+                print(f"        -> {log}")
+            elif c == "r":
+                if not kinematic and held:
+                    grabber.release(); held = False
+                print("[reset]")
+
+        dx = (th - br) * HANDLE_SPEED * STEP
+        dy = s * HANDLE_SPEED * STEP
+        dz = 0.0
+        if kinematic:
+            b = grabbable[sel]
+            p = b.GetPos()
+            b.SetPos(chrono.ChVector3d(p.x + dx, p.y + dy, p.z + dz))
+        elif held:
+            grabber.move(dx, dy, dz)
+
+        if n % render_every == 0:
+            # Keep the selected body in frame; there is no user camera control,
+            # because PyChrono cannot read this window's mouse or keyboard.
+            look = grabbable[sel].GetPos()
+            vis.UpdateCamera(chrono.ChVector3d(look.x + chase * 0.9,
+                                               look.y - chase * 1.5,
+                                               look.z + chase * 0.8), look)
+            vis.BeginScene(); vis.Render(); vis.EndScene()
+            if console and n % (render_every * 10) == 0:
+                b = grabbable[sel]
+                p = b.GetPos()
+                f = grabber.force() if (grabber and held) else 0.0
+                console.send(f"{t:.3f},{p.x:.3f},{f:.3f},{p.z:.3f},{s:.3f},{th:.3f},{br:.3f},"
+                             f"{'HELD' if held else grabbable[sel].GetName()[:8]}")
+        system.DoStepDynamics(STEP)
+        n += 1
+
+    if headless_script and headless_script.get("shot"):
+        vis.BeginScene(); vis.Render(); vis.EndScene()
+        vis.WriteImageToFile(headless_script["shot"])
+    return system, grabbable
+
+
+if __name__ == "__main__":
+    mode = sys.argv[1] if len(sys.argv) > 1 else "arm"
+    if mode not in SCENES:
+        raise SystemExit(f"usage: python hil_manipulate.py [{' | '.join(SCENES)}]")
+    if mode == "go2":
+        import os
+        here = os.path.dirname(os.path.abspath(__file__))
+        GO2_URDF = os.environ.get("GO2_URDF",
+                                  os.path.join(here, "go2_assets/urdf/go2.urdf"))
+        if not os.path.exists(GO2_URDF):
+            raise SystemExit(
+                f"Go2 URDF not found at {GO2_URDF}.\n"
+                "  git clone https://github.com/wty-yy/go2_rl_gym\n"
+                "  export GO2_URDF=go2_rl_gym/resources/robots/go2/urdf/go2.urdf")
+        globals()["GO2_URDF"] = GO2_URDF
+    main(mode)

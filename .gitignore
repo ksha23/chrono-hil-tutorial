@@ -1,3 +1,5 @@
 __pycache__/
 *.pyc
 DEMO_OUTPUT/
+go2_assets/
+placement_*.log
