@@ -544,7 +544,17 @@ def build(check_only=False):
         per_fig = max(24, int(78 * body_w / 11.96))
         est_fig = sum(1 + len(it[0] if isinstance(it, tuple) else it) // per_fig
                       for it in items)
-        while size > 13 and est > (13 if not note else 11) * (20.0 / size):
+        # Fit by geometry rather than by a line budget. The old constant said
+        # "13 lines, or 11 if there is a note", and when notes were folded INTO
+        # the items the note vanished, so the budget relaxed from 11 to 13 at
+        # exactly the moment the content grew by the note. The result ran over
+        # the footer. Text starts at 1.44 in and must stop clear of the footer
+        # at 7.27; a line costs size*1.25 pt and each item costs its gap.
+        avail = 6.80 - 1.44
+        while size > 12:
+            gap = 9 if size >= 18 else 5
+            if (est * (size * 1.25) + len(items) * gap) / 72.0 <= avail:
+                break
             size -= 1
         gap = 9 if size >= 18 else 5
         for i, item in enumerate(items):
