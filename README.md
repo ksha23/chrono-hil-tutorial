@@ -350,9 +350,30 @@ Three things about that URDF cost real time, and the script handles all of them:
 
 - **Eight links have no `<inertial>`** (collision-only cylinders on the calves).
   Chrono's parser *segfaults* on them rather than complaining. They are stripped.
-- **The visual meshes are Collada.** Chrono reads meshes with `tiny_obj`, so a
-  `.dae` goes to a Wavefront parser and segfaults. They are stripped and the
-  collision primitives drawn instead -- 5 boxes, 17 cylinders, 5 spheres.
+- **The visual meshes are Collada.** Chrono reads every mesh with `tiny_obj`, so
+  a `.dae` reaches a Wavefront parser and segfaults. Convert them once and the
+  script picks the `.obj` up automatically:
+
+  ```bash
+  pip install trimesh pycollada
+  python - <<'PY'
+  import trimesh, glob, os
+  os.makedirs("go2_assets/obj", exist_ok=True)
+  for d in glob.glob("go2_assets/dae/*.dae"):
+      trimesh.load(d, force="mesh").export(
+          "go2_assets/obj/" + os.path.splitext(os.path.basename(d))[0] + ".obj")
+  PY
+  ```
+
+  With no `obj/` beside the `dae/`, the visuals are dropped and the collision
+  primitives are drawn instead -- 5 boxes, 17 cylinders, 5 spheres. Correct
+  physics, blocky picture.
+- **The default NSC solver cannot hold it still.** PSOR at 50 iterations cannot
+  resolve eighteen motor constraints and four foot contacts in one step, and
+  friction is what loses: the robot creeps across the floor as though it were on
+  ice. Barzilai-Borwein at 200 iterations takes the residual drift from 13 mm/s
+  to 0.3 mm/s. These are the same settings `tutorial_HIL_driver.py` already uses
+  on vehicles, for the same reason.
 - **`ChParserURDF` leaves collision *disabled*** on every body it creates, so
   the robot drops silently through the floor. It is enabled on the feet only;
   enabling it everywhere makes adjacent links fight and the robot tears itself

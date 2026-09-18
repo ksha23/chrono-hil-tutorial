@@ -203,7 +203,8 @@ def scene_go2(system):
     urdf = make_chrono_safe_urdf(GO2_URDF)
     ground_plane(system)
     p = parsers.ChParserURDF(urdf)
-    p.EnableCollisionVisualization()       # the visual meshes were stripped above
+    if "../obj/" not in open(urdf).read():
+        p.EnableCollisionVisualization()   # no real visuals survived; draw the shapes
     # Without this the parsed bodies get no contact material and the robot falls
     # straight through the floor -- silently, since nothing warns about it.
     feet = chrono.ChContactMaterialData()
@@ -312,19 +313,34 @@ def make_chrono_safe_urdf(path):
     for joint in re.findall(r"<joint\b.*?</joint>", out, re.S):
         if any(f'"{d}"' in joint for d in drop):
             out = out.replace(joint, "")
-    # Collada visuals: Chrono would hand them to tiny_obj and segfault.
-    meshes = 0
+    # Collada visuals: Chrono reads every mesh with tiny_obj, so a .dae reaches a
+    # Wavefront parser and segfaults. If an .obj of the same name has been
+    # converted next door, point at that; otherwise drop the visual and fall back
+    # to drawing the collision primitives.
+    base_dir = os.path.dirname(os.path.abspath(path))
+    swapped = dropped_meshes = 0
     for vis_block in re.findall(r"<visual>.*?</visual>", out, re.S):
         fn = re.search(r'filename="([^"]+)"', vis_block)
-        if fn and not fn.group(1).lower().endswith(".obj"):
+        if not fn or fn.group(1).lower().endswith(".obj"):
+            continue
+        stem = os.path.splitext(os.path.basename(fn.group(1)))[0]
+        obj_rel = f"../obj/{stem}.obj"
+        if os.path.exists(os.path.normpath(os.path.join(base_dir, obj_rel))):
+            out = out.replace(vis_block, vis_block.replace(fn.group(1), obj_rel))
+            swapped += 1
+        else:
             out = out.replace(vis_block, "")
-            meshes += 1
+            dropped_meshes += 1
+    meshes = dropped_meshes
     safe = os.path.join(os.path.dirname(path), "_chrono_safe.urdf")
     open(safe, "w").write(out)
     if drop:
         print(f"[urdf] dropped {len(drop)} inertia-less links Chrono segfaults on ({drop[0]}, ...)")
+    if swapped:
+        print(f"[urdf] using {swapped} converted .obj visual meshes")
     if meshes:
-        print(f"[urdf] dropped {meshes} non-OBJ visual meshes; drawing collision shapes instead")
+        print(f"[urdf] dropped {meshes} meshes with no .obj beside them; "
+              f"drawing collision shapes for those")
     return safe
 
 
@@ -339,6 +355,13 @@ def main(mode, headless_script=None):
     system.SetGravitationalAcceleration(chrono.ChVector3d(0, 0, -9.81))
     system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
     system.SetSleepingAllowed(False)     # a resting body would sleep through the spring
+    # The default NSC solver is PSOR at 50 iterations, which cannot resolve a
+    # robot's worth of motor constraints AND its foot contacts in the same step.
+    # Friction loses, and the thing creeps across the floor as though it were
+    # ice. These are the settings tutorial_HIL_driver.py already uses on vehicles
+    # for the same reason.
+    system.SetSolverType(chrono.ChSolver.Type_BARZILAIBORWEIN)
+    system.GetSolver().AsIterative().SetMaxIterations(200)
 
     grabbable, chase, hint, anchor = SCENES[mode](system)
     ap = anchor.GetPos()
