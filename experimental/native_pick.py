@@ -1,7 +1,11 @@
-"""What the one-line SWIG change buys: mouse picking in ~25 portable lines.
+"""What the one-line SWIG change buys: mouse picking in 18 portable lines.
+
+MouseReceiver below is those 18 lines (non-blank, non-comment, non-docstring,
+the same rule README.md counts the OS backends by). Everything under
+__main__ is a harness to run it against, not part of the count.
 
 Run against a Chrono built with %feature("director") irr::IEventReceiver:
-    PYTHONPATH=<build>/bin python native_pick.py
+    PYTHONPATH=<build>/bin python experimental/native_pick.py
 """
 import pychrono as chrono
 import pychrono.irrlicht as irr

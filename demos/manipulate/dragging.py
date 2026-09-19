@@ -26,7 +26,10 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
 
-from chronohil import (GRAB_REACH, Grabber, chrono, pick_along_ray,
+# STEP is used by the drag-plane rotation below, which runs once per physics
+# step. Losing it raised NameError at the instant Q or E was pressed mid-drag
+# -- a path no headless test reaches.
+from chronohil import (GRAB_REACH, Grabber, STEP, chrono, pick_along_ray,
                        pick_near_ray)
 
 

@@ -11,58 +11,70 @@
 # =============================================================================
 # Tutorial: Chrono support for human-in-the-loop simulation
 #
-# One script, eight parts. Change the switches in the CONFIGURATION section at
-# the bottom of the file to move from one part to the next.
+# DEMOS 1 AND 2 LIVE HERE.
 #
-#   PART 1: Keep the simulation real-time            (INPUT_SOURCE = "data")
-#   PART 2: A human on the keyboard                  (INPUT_SOURCE = "keyboard")
-#   PART 3: A gamepad or wheel, read natively         (INPUT_SOURCE = "gamepad")
-#   PART 4: A device Chrono doesn't know, and         (INPUT_SOURCE = "udp",
-#           closing the loop back to it                SEND_FEEDBACK = True)
-#   PART 5: Customize the built-in overlay            (SHOW_* switches, VEHICLE)
-#   PART 6: Change gear                               (TRANSMISSION, and the
-#                                                      keys listed at startup)
-#   PART 7: Drive somewhere real                      (SCENE = "mcity")
-#   PART 8: Control something that isn't a car        (PLANT = "rover"/"crane")
+#     python demos/driver/tutorial_HIL_driver.py          run it
+#     python demos/driver/tutorial_HIL_driver.py --help   the switches, listed
+#
+# Nothing is passed on the command line. Every switch is a constant in the
+# CONFIGURATION block at the bottom of this file, and the two demos are two
+# settings of it:
+#
+#   Demo 1  Does the clock matter     INPUT_SOURCE = "data"
+#                                     REALTIME = "none", then "vehicle"
+#   Demo 2  A person driving          INPUT_SOURCE = "keyboard"
+#                                     KEYBOARD_MODE = "held"
+#
+# Six more switches are here too. They are not demos and they have no numbers;
+# each is named after the constant that turns it on, and the code below is
+# marked with the same name so it can be found by searching for it:
+#
+#   INPUT_SOURCE = "gamepad"   a joystick or wheel, read by Chrono itself
+#   INPUT_SOURCE = "udp"       a device Chrono has never heard of, plus
+#                              telemetry back to it (SEND_FEEDBACK)
+#   VEHICLE, SHOW_*            which car, and the built-in Irrlicht overlay
+#   TRANSMISSION               changing gear, which is not part of ChDriver
+#   SCENE                      flat terrain, or the Mcity digital twin
+#   PLANT                      a rover or a gantry crane instead of a car
 #
 # The vehicle defaults to an HMMWV on flat rigid terrain (same model as
 # demo_VEH_HMMWV) but VEHICLE can pick any of a few other Chrono::Vehicle
-# models - see build_vehicle() and PART 5 below. The vehicle reference frame
-# has Z up, X towards the front of the vehicle, and Y pointing to the left.
+# models - see build_vehicle(). The vehicle reference frame has Z up, X
+# towards the front of the vehicle, and Y pointing to the left.
 #
-# Parts 6-8 live in three modules next to this one, so that this file stays a
-# readable simulation loop rather than a pile of special cases:
+# Three modules next to this one keep this file a readable simulation loop
+# rather than a pile of special cases:
 #
-#   hil_gearbox.py   PART 6, the transmission
-#   hil_scene.py     PART 7, flat terrain or the Mcity digital twin
-#   hil_plants.py    PART 8, a vehicle, a rover, or a gantry crane
+#   hil_gearbox.py   TRANSMISSION, and the shift keys
+#   hil_scene.py     SCENE, flat terrain or the Mcity digital twin
+#   hil_plants.py    PLANT, a vehicle, a rover, or a gantry crane
 # =============================================================================
 
 import math
-import socket
-import time
-
 import os
+import socket
 import sys
+import time
 
 # --help before anything heavy: this script has no __main__ guard, it runs on
 # import, so a check placed further down never gets reached.
 if "-h" in sys.argv or "--help" in sys.argv:
-    print("usage: python tutorial_HIL_driver.py\n"
+    print("usage: python demos/driver/tutorial_HIL_driver.py\n"
           "\n"
           "Configured by editing, not by flags: every switch is in the\n"
           "CONFIGURATION block at the bottom of this file.\n"
           "\n"
-          "  DEMO 1, does the clock matter\n"
+          "  Demo 1, does the clock matter\n"
           "      INPUT_SOURCE = \"data\",  REALTIME = \"none\"  then \"vehicle\"\n"
           "      Watch the drift column in the console run away, then not.\n"
           "\n"
-          "  DEMO 2, a person driving\n"
+          "  Demo 2, a person driving\n"
           "      INPUT_SOURCE = \"keyboard\",  KEYBOARD_MODE = \"held\"\n"
           "      W/A/S/D drive. The arrow keys are the chase camera.\n"
           "\n"
-          "  Also here, Parts 5 to 8: VEHICLE, TRANSMISSION, SCENE (\"mcity\")\n"
-          "  and PLANT (\"rover\", \"crane\").")
+          "  Not numbered, and in the same block: VEHICLE, TRANSMISSION,\n"
+          "  SCENE (\"mcity\"), PLANT (\"rover\", \"crane\") and the SHOW_*\n"
+          "  overlay switches.")
     raise SystemExit(0)
 
 # The loader-path trap, and its message, live in one place for every demo.
@@ -82,7 +94,7 @@ import hil_scene
 
 
 # =============================================================================
-# PART 1: REAL-TIME ENFORCEMENT
+# Demo 1: REAL-TIME ENFORCEMENT (REALTIME)
 # =============================================================================
 #
 # Chrono only gives you *soft* real-time: after every step we check how much
@@ -119,7 +131,7 @@ class CumulativeRealtimeTimer:
 
 
 # =============================================================================
-# PART 3: A GAMEPAD OR WHEEL, READ NATIVELY
+# INPUT_SOURCE = "gamepad": A GAMEPAD OR WHEEL, READ NATIVELY
 # =============================================================================
 #
 # ChInteractiveDriver already knows how to read a joystick - no pygame, no
@@ -130,7 +142,7 @@ class CumulativeRealtimeTimer:
 # second - no separate probe script needed.
 #
 # =============================================================================
-# PART 4: BRING A DEVICE CHRONO DOESN'T KNOW ABOUT
+# INPUT_SOURCE = "udp": BRING A DEVICE CHRONO DOESN'T KNOW ABOUT
 # =============================================================================
 #
 # The whole "human interface" to a Chrono vehicle is three numbers per step:
@@ -139,7 +151,7 @@ class CumulativeRealtimeTimer:
 # SetThrottle(), SetBraking().  Anything that can produce three floats can
 # drive the vehicle - a socket, a phone, a ROS node, another machine on the
 # network - Chrono just doesn't ship a reader for it the way it does for a
-# joystick, so operator_console.py plays that role here.
+# joystick, so archive/operator_console.py plays that role here.
 
 
 class SmoothedInputs:
@@ -182,7 +194,7 @@ class DriverInputs:
     """The whole ChDriver contract, in Python.
 
     ChDriver is a container for three numbers and the accessors that read them
-    back.  The rover and the crane (PART 8) have no ChVehicle to hand it, so
+    back.  The rover and the crane (PLANT) have no ChVehicle to hand it, so
     they use this stand-in instead, and every line of the simulation loop stays
     the same.
 
@@ -231,7 +243,7 @@ class ScriptedInputs(DriverInputs):
     """ChDataDriver for a plant that has no ChVehicle: interpolate a table by time.
 
     Same table, same linear interpolation between entries, same hold before the
-    first and after the last.  Here so that PART 1 (which is about real time,
+    first and after the last.  Here so that Demo 1 (which is about real time,
     not about vehicles) works on all three plants.
     """
 
@@ -259,12 +271,12 @@ class ScriptedInputs(DriverInputs):
 class UdpInput:
     """Receive 'steering,throttle,braking[,gear]' text datagrams from an operator.
 
-    Run operator_console.py in another terminal (or on another machine) and
-    drive with the arrow keys there.  The socket is non-blocking: the physics
-    loop never waits for the operator.  If no packet arrived since the last
-    step, the previous target is held (zero-order hold).
+    Run archive/operator_console.py in another terminal (or on another machine)
+    and drive with the arrow keys there.  The socket is non-blocking: the
+    physics loop never waits for the operator.  If no packet arrived since the
+    last step, the previous target is held (zero-order hold).
 
-    PART 6 added the optional fourth field.  It is a single character naming a
+    The gearbox added the optional fourth field.  It is a single character naming a
     gear command (see hil_gearbox.Gearbox.COMMANDS) or '-' for "no command this
     packet", and unlike the three numbers it is an EVENT rather than a level:
     the operator presses ']' once and means one upshift, not "keep upshifting".
@@ -283,7 +295,8 @@ class UdpInput:
         self.last = (0.0, 0.0, 0.0)
         self.packets = 0
         self.gear_commands = []
-        print(f"[udp] listening on port {port} - start operator_console.py")
+        print(f"[udp] listening on port {port} - "
+              "start archive/operator_console.py")
 
     def poll(self):
         # Drain everything that is queued and keep only the newest packet.  The
@@ -313,14 +326,14 @@ class UdpInput:
         commands, self.gear_commands = self.gear_commands, []
         return commands
 
-    # PART 4: telemetry back to whoever is sending us inputs
+    # Telemetry back to whoever is sending us inputs
     def send_feedback(self, text):
         if self.operator_addr is not None:
             self.sock.sendto(text.encode(), self.operator_addr)
 
 
 # =============================================================================
-# PART 5: CHOOSE YOUR CAR
+# VEHICLE: CHOOSE YOUR CAR
 # =============================================================================
 #
 # Every "full vehicle" model in Chrono::Vehicle (HMMWV_Full, Sedan, UAZBUS,
@@ -359,7 +372,7 @@ class JsonVehicle:
 
 # Ride height at spawn, per model: how far above the ground the vehicle's
 # reference frame has to start so that it settles onto its tires rather than
-# through them.  PART 7 needs these separately from the pose, because on Mcity
+# through them.  SCENE needs these separately from the pose, because on Mcity
 # the ground is not at z = 0.
 SPAWN_HEIGHT = {"hmmwv": 1.6, "sedan": 0.5, "uazbus": 0.4, "gator": 0.4, "audi": 0.5}
 
@@ -367,8 +380,8 @@ SPAWN_HEIGHT = {"hmmwv": 1.6, "sedan": 0.5, "uazbus": 0.4, "gator": 0.4, "audi":
 def build_vehicle(name, start, transmission="automatic"):
     """Construct and initialize one of a few Chrono::Vehicle models.
 
-    start         where to put it (PART 7: flat terrain and Mcity differ)
-    transmission  "automatic" or "manual" (PART 6)
+    start         where to put it (SCENE: flat terrain and Mcity differ)
+    transmission  "automatic" or "manual" (TRANSMISSION)
 
     Returns (vehicle_model, chase_distance): vehicle_model is the wrapper
     object (what used to be called `hmmwv`); chase_distance is how far back
@@ -420,7 +433,7 @@ def build_vehicle(name, start, transmission="automatic"):
         chase_dist = 6.0
 
     elif name == "audi":
-        ### PART 6: the one model here with a manual gearbox to row through ###
+        ### TRANSMISSION: the one model here with a manual gearbox to row through ###
         #
         # Built from JSON rather than from a model wrapper class, which is how
         # most real Chrono::Vehicle work is done: the wrappers above hard-code
@@ -478,7 +491,7 @@ def build_vehicle(name, start, transmission="automatic"):
 
 
 def build_plant(plan):
-    """Create the thing being controlled, and the terrain under it (PARTS 7, 8).
+    """Create the thing being controlled, and the terrain under it (SCENE, PLANT).
 
     Returns (plant, chase_distance).  The plant wraps whatever was built behind
     the small interface described at the top of hil_plants.py, which is what
@@ -505,7 +518,7 @@ def build_plant(plan):
         return hil_plants.VehiclePlant(vehicle_model, terrain, gearbox), chase_dist
 
     if PLANT == "rover":
-        ### PART 8: a Viper rover - same three numbers, a completely different machine ###
+        ### PLANT = "rover": same three numbers, a completely different machine ###
         system = chrono.ChSystemNSC()
         system.SetGravitationalAcceleration(chrono.ChVector3d(0, 0, -9.81))
         system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
@@ -516,7 +529,7 @@ def build_plant(plan):
                                      wheel_mat.CreateMaterial(system.GetContactMethod())), 4.0
 
     if PLANT == "crane":
-        ### PART 8: a gantry crane - no Chrono::Vehicle involved at all ###
+        ### PLANT = "crane": no Chrono::Vehicle involved at all ###
         # NSC rather than SMC: this model is constraints and motors with no
         # contact anywhere, so there is nothing for a penalty formulation to do.
         system = chrono.ChSystemNSC()
@@ -530,7 +543,7 @@ def build_plant(plan):
 
 def main():
     # -----------------------------------------------------------------------
-    # Where are we driving (PART 7), and what are we driving (PARTS 5, 8)?
+    # Where are we driving (SCENE), and what are we driving (VEHICLE, PLANT)?
     # -----------------------------------------------------------------------
     spawn_height = SPAWN_HEIGHT.get(VEHICLE, 0.5) if PLANT == "vehicle" else 0.5
     plan = hil_scene.plan_scene(SCENE, spawn_height,
@@ -542,8 +555,9 @@ def main():
     gearbox = getattr(plant, "gearbox", None)
 
     # The driver classes below need a ChVehicle. The rover and the crane do not
-    # have one, so they take their input over the network (PART 4) or from the
-    # scripted table (PART 1) - which is the lesson, not a limitation: the
+    # have one, so they take their input over the network (INPUT_SOURCE =
+    # "udp") or from the scripted table ("data") - which is the lesson, not a
+    # limitation: the
     # operator console did not have to change to drive a crane.
     vehicle = plant.vehicle if PLANT == "vehicle" else None
     if PLANT != "vehicle" and INPUT_SOURCE in ("keyboard", "gamepad"):
@@ -555,10 +569,10 @@ def main():
     # -----------------------------------------------------------------------
     # Create the driver system - this is where the human plugs in
     # -----------------------------------------------------------------------
-    device = None  # PART 4 input device (UdpInput) - gamepad/wheel needs no device object
+    device = None  # the "udp" input device (UdpInput); a gamepad needs no device object
 
     if INPUT_SOURCE == "data":
-        ### PART 1: scripted inputs - no human in the loop ###
+        ### Demo 1: scripted inputs - no human in the loop ###
         # (time, steering, throttle, braking)
         data_entries = [
             (0.0, 0.0, 0.0, 0.0),
@@ -573,7 +587,7 @@ def main():
         driver = veh.ChDataDriver(vehicle, data) if vehicle else ScriptedInputs(data_entries)
 
     elif INPUT_SOURCE == "keyboard":
-        ### PART 2: keyboard through the Irrlicht window ###
+        ### Demo 2: keyboard through the Irrlicht window ###
         # W/A/S/D drive, 'C' centers steering, 'R' releases the pedals, 'L' locks
         # the current inputs.  The ARROW keys are not driving controls: they belong
         # to the chase camera (zoom and orbit), which is a separate Irrlicht event
@@ -583,7 +597,7 @@ def main():
         driver.SetGains(4.0, 4.0, 4.0)  # first-order lag from key target to applied input
 
         # KEYBOARD_MODE picks what a keypress MEANS.  This is the same question
-        # PART 4 answers for its own device, so it is worth seeing both answers:
+        # the "udp" source answers for its own device, so see both answers:
         #
         #   "cumulative"  each keypress nudges a target by a fixed delta, and the
         #                 target stays where you left it.  Historical Chrono
@@ -591,7 +605,7 @@ def main():
         #   "held"        the input follows the keys currently held down and ramps
         #                 back when you let go, as in a driving game.  This is the
         #                 same "levels, re-sent continuously" model that
-        #                 operator_console.py uses over UDP in PART 4, and SetGains
+        #                 archive/operator_console.py uses over UDP, and SetGains
         #                 above is the ramp rate.
         #
         # "held" needs the KeyboardMode API (PyChrono build 1187 / Aug 2026 and
@@ -612,7 +626,7 @@ def main():
         driver.SetBrakingDelta(render_step_size / braking_time)
 
     elif INPUT_SOURCE == "gamepad":
-        ### PART 3: a gamepad or wheel - same driver class as keyboard ###
+        ### INPUT_SOURCE = "gamepad": a wheel, same driver class as keyboard ###
         # SetInputMode(JOYSTICK) switches ChInteractiveDriver from reading the
         # Irrlicht window's keyboard to reading the joystick vis configures
         # below.  Smoothing (SetGains) applies the same way either mode.
@@ -621,7 +635,7 @@ def main():
         driver.SetInputMode(driver.InputMode_JOYSTICK)
 
     else:
-        ### PART 4: a device Chrono doesn't know about writes into a plain ChDriver ###
+        ### INPUT_SOURCE = "udp": an unknown device writes a plain ChDriver ###
         # A plain ChDriver is a container for three floats. For a plant with no
         # ChVehicle to hand it, DriverInputs below is that same container in
         # twelve lines of Python - which is the clearest statement of how little
@@ -655,7 +669,7 @@ def main():
         # through the video driver it just failed to make, so on a machine with
         # no display it segfaults INSIDE this call, one frame below Python. The
         # plain visual system further down returns from Initialize and is
-        # caught properly. Part 8 (PLANT = "rover"/"crane") takes that branch.
+        # caught properly. PLANT = "rover"/"crane" takes that branch.
         require_window(vis, how="the push demo is the one that runs without one")
         vis.AddLogo(chrono.GetChronoDataFile("logo_chrono_alpha.png"))
         vis.AddLightDirectional()
@@ -667,7 +681,7 @@ def main():
             vis.SetJoystickConfigFile(JOYSTICK_CONFIG)
             vis.SetJoystickDebug(JOYSTICK_DEBUG)  # prints live axis/button numbers
 
-        # PART 5: the built-in overlay - nothing here is hand-drawn, every piece
+        # SHOW_*: the built-in overlay - nothing here is hand-drawn, every piece
         # is a flag or a method on `vis` itself
         vis.EnableStats(SHOW_VEHICLE_HUD)        # speed/steering/throttle/brake panel
         vis.SetHUDLocation(*HUD_CORNER)          # where that panel sits
@@ -676,7 +690,7 @@ def main():
                                                  # toggles live with the 'i' key
         vis.ShowProfiler(SHOW_PROFILER)          # per-module timing bars
     else:
-        ### PART 8: a plain visual system, because there is no vehicle to attach ###
+        ### PLANT = "rover"/"crane": a plain visual system, no vehicle to attach ###
         vis = irr.ChVisualSystemIrrlicht()
         # Chrono's world here is Z-up, but a plain ChVisualSystemIrrlicht
         # defaults to a Y-up camera, which renders the ground as a wall. The
@@ -709,7 +723,7 @@ def main():
                          target)
 
     # -----------------------------------------------------------------------
-    # Real-time setup (PART 1)
+    # Real-time setup (Demo 1)
     # -----------------------------------------------------------------------
     realtime_mode = REALTIME
     if REALTIME == "vehicle":
@@ -740,7 +754,7 @@ def main():
     if plan.note:
         print(f"scenery: {plan.note}")
     if INPUT_SOURCE in ("keyboard", "gamepad") and gearbox and gearbox.present:
-        ### PART 6: Chrono already binds these; nothing in this file has to ###
+        ### TRANSMISSION: Chrono already binds these; this file need not ###
         print("\nkeys handled by Chrono's Irrlicht event receiver:")
         print(hil_gearbox.KEYBOARD_HELP)
     print()
@@ -762,12 +776,12 @@ def main():
             vis.Render()
             vis.EndScene()
 
-        # PART 4: sample the device ONCE per step and hold it for the step
+        # Sample the device ONCE per step and hold it for the step
         if device is not None:
             smoother.set_target(*device.poll())
             smoother.advance(step_size)
             smoother.apply_to(driver)
-            # PART 6: gear commands are events, not levels, so they are applied
+            # Gear commands are events, not levels, so they are applied
             # once each rather than held like the three numbers above.
             if gearbox is not None:
                 for command in device.take_gear_commands():
@@ -776,7 +790,7 @@ def main():
         # Get driver inputs (three floats) - the shape every plant here is driven through
         driver_inputs = driver.GetInputs()
 
-        # PART 8: hand the three numbers to whatever is being controlled. For a
+        # THE BINDING: hand the three numbers to whatever is controlled. For a
         # Chrono::Vehicle this does nothing (the vehicle reads them in
         # Synchronize); for the rover and the crane it is where they land.
         plant.apply(driver_inputs)
@@ -823,8 +837,8 @@ def main():
                   f" {driver_inputs.m_throttle:5.2f} {driver_inputs.m_braking:5.2f}"
                   f"  {plant.status()}")
 
-        # PART 4: feedback to the operator (speed, RTF, lateral acceleration, applied
-        # inputs, and since PART 6 the gear)
+        # Feedback to the operator (speed, RTF, lateral acceleration, applied
+        # inputs, and the gear)
         if SEND_FEEDBACK and device is not None and step_number % render_steps == 0:
             acc = (vehicle.GetPointAcceleration(chrono.ChVector3d(0, 0, 0)).y
                    if vehicle else 0.0)
@@ -837,7 +851,7 @@ def main():
 
         step_number += 1
 
-        # PART 1: spin in place for real time to catch up
+        # Demo 1: spin in place for real time to catch up
         if realtime_mode == "per_step":
             rt_timer.Spin(step_size)
         elif realtime_mode == "cumulative":
@@ -848,65 +862,66 @@ def main():
 # CONFIGURATION
 # =============================================================================
 
-# PART 8: what are we controlling?
-#   "vehicle"  a Chrono::Vehicle (PARTS 1-7)
+# PLANT: what are we controlling?
+#   "vehicle"  a Chrono::Vehicle, which is what Demos 1 and 2 drive
 #   "rover"    a Viper rover: same three numbers, six wheels, no gearbox
 #   "crane"    a gantry crane with a swinging payload, and no Chrono::Vehicle
 #              anywhere in it. Try to put the load on the green pad without
 #              letting it swing; the console prints the swing angle.
 # The rover and the crane have no ChVehicle, so they take INPUT_SOURCE "udp"
-# (operator_console.py drives them unchanged) or "data".
+# (archive/operator_console.py drives them unchanged) or "data".
 PLANT = "vehicle"
 
-# PART 5: choose your car - "hmmwv" | "sedan" | "uazbus" | "gator" | "audi"
+# VEHICLE: choose your car - "hmmwv" | "sedan" | "uazbus" | "gator" | "audi"
 # "audi" is built from JSON rather than from a model wrapper class, which is
-# what makes TRANSMISSION = "manual" (PART 6) possible: the wrappers each ship
+# what makes TRANSMISSION = "manual" possible: the wrappers each ship
 # one powertrain and none of them ships a manual gearbox.
 VEHICLE = "hmmwv"
 
-# PART 6: which gearbox. "automatic" | "manual".
+# TRANSMISSION: which gearbox. "automatic" | "manual".
 # Only VEHICLE = "audi" has both; the other models ship an automatic each and
 # say so rather than silently ignoring this.
 TRANSMISSION = "automatic"
 
-# PART 6: start an automatic in MANUAL shift mode, so '[' and ']' do something
+# TRANSMISSION: start an automatic in MANUAL shift mode, so '[' and ']' do something
 # immediately. Left in AUTOMATIC, the gearbox overrides your gear on the next
 # step, which looks exactly like the shift keys being broken.
 START_IN_MANUAL_SHIFT = False
 
-# PART 7: where to drive. "flat" | "mcity"
+# SCENE: where to drive. "flat" | "mcity"
 #   "flat"   200 x 200 m patch, no download, runs on anything
 #   "mcity"  the Mcity digital twin, generated by the converter in the Chrono
 #            tree (see hil_scene.py). Falls back to "flat" if it is not built.
 SCENE = "flat"
 
-# PART 7: how much of Mcity to draw. "ground" | "light" | "full"
+# SCENE: how much of Mcity to draw. "ground" | "light" | "full"
 #   "ground"  the road surface only. The one to use on a laptop: full elevation
 #             and full geometry to drive on, nothing else drawn.
 #   "light"   plus poles, signal heads and street lights
 #   "full"    everything in the manifest
 MCITY_DETAIL = "light"
 
-# PART 7: where the converted Mcity scene lives. None = <chrono data>/mcity
+# SCENE: where the converted Mcity scene lives. None = <chrono data>/mcity
 MCITY_DIR = None
 
 # Where do the driver inputs come from?
-#   "data"      PART 1 - scripted ChDataDriver, no human
-#   "keyboard"  PART 2 - ChInteractiveDriver, W/A/S/D in the Irrlicht window
-#   "gamepad"   PART 3 - a joystick/wheel, read natively (JOYSTICK_CONFIG below)
-#   "udp"       PART 4 - operator_console.py sends packets over the network
+#   "data"      Demo 1 - scripted ChDataDriver, no human
+#   "keyboard"  Demo 2 - ChInteractiveDriver, W/A/S/D in the Irrlicht window
+#   "gamepad"   a joystick/wheel, read natively (JOYSTICK_CONFIG below)
+#   "udp"       archive/operator_console.py sends packets over the network
 INPUT_SOURCE = "data"
 
-# PART 2: what a keypress means.  "cumulative" | "held"
+# Demo 2: what a keypress means.  "cumulative" | "held"
 #   "cumulative"  a keypress nudges the input by a delta and it stays there
 #   "held"        the input follows the keys held down, as in a driving game
-# "held" matches what the PART 4 console does over UDP; see build_driver().
+# "held" matches what the udp console does over UDP; see the INPUT_SOURCE
+# branches in main().
 KEYBOARD_MODE = "cumulative"
 
 # How is real time enforced?  "none" | "per_step" | "vehicle" | "cumulative"
 REALTIME = "none"
 
-# PART 4: send telemetry back to the operator (udp source only)
+# Send telemetry back to the operator (udp source only)
 SEND_FEEDBACK = False
 
 # Simulation step sizes.  Make step_size smaller (e.g. 5e-4) to see RTF > 1.
@@ -919,16 +934,16 @@ tire_model = veh.TireModelType_TMEASY
 # Time interval between two render frames
 render_step_size = 1.0 / 50  # FPS = 50
 
-# PART 3: joystick/wheel config - four presets ship with Chrono, or write your own
+# INPUT_SOURCE = "gamepad": four presets ship with Chrono, or write your own
 #   controller_XboxOneForWindows.json, controller_LogitechRumblePad2.json,
 #   controller_WheelPedalsAndShifters.json, controller_Default.json
 JOYSTICK_CONFIG = veh.GetVehicleDataFile("joystick/controller_XboxOneForWindows.json")
 JOYSTICK_DEBUG = False  # True: print live axis/button numbers to find your device's mapping
 
-# PART 4 device settings
+# The "udp" device settings
 UDP_PORT = 9870
 
-# PART 5: the built-in Irrlicht overlay - add or remove pieces of it here
+# The built-in Irrlicht overlay - add or remove pieces of it here
 # instead of writing your own on top of the 3D view
 SHOW_VEHICLE_HUD = True         # speed/steering/throttle/brake panel
 HUD_CORNER = (10, 10)           # (x, y) pixels from the top-left corner

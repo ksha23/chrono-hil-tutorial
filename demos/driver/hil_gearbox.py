@@ -9,9 +9,9 @@
 # http://projectchrono.org/license-chrono.txt.
 #
 # =============================================================================
-# PART 6 support: the gearbox.
+# TRANSMISSION, and the shift keys: the gearbox.
 #
-# Parts 1-5 treat the human interface as three numbers -- steering, throttle,
+# Demos 1 and 2 treat the human interface as three numbers -- steering, throttle,
 # braking -- because that is the whole ChDriver contract.  A real driver does a
 # fourth thing: they choose a gear.  That does not go through ChDriver at all,
 # because the gearbox is part of the *vehicle*, not part of the driver:
@@ -26,12 +26,12 @@
 #         .SetDriveMode(FORWARD | NEUTRAL | REVERSE)   the D/N/R selector
 #         .SetShiftMode(AUTOMATIC | MANUAL)            let it shift, or row it
 #
-# On the KEYBOARD (Part 2), you do not have to write any of this: Chrono's own
+# On the KEYBOARD (Demo 2), you do not have to write any of this: Chrono's own
 # Irrlicht event receiver already binds those calls, and vis.AttachDriver()
 # is what wires it up.  See KEYBOARD_HELP below for the mapping.
 #
-# For a device Chrono does not know about (Part 4), nothing is wired up for
-# you -- which is the point of Part 4.  Gearbox below is the small adapter that
+# For a device Chrono does not know about (INPUT_SOURCE = "udp"), nothing is
+# wired up for you, which is the point of it.  Gearbox below is the adapter that
 # turns a one-character command from such a device into the calls above, so the
 # operator console can shift gears over the same UDP socket it already uses for
 # steering and throttle.
@@ -72,7 +72,7 @@ class Gearbox:
     `gearbox.describe()` without a branch.
     """
 
-    #: single-character commands, as sent by operator_console.py
+    #: single-character commands, as sent by archive/operator_console.py
     COMMANDS = {
         "u": "up",        # shift up
         "d": "down",      # shift down

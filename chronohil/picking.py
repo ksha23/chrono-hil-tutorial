@@ -16,8 +16,7 @@ import math          # set_plane's rotation. Nothing headless touches set_plane,
                      # that does not use a mouse still passed.
 
 from .chrono_env import chrono
-from .config import (GRAB_MAX_SPEED, GRAB_MIN_MASS, GRAB_OMEGA, GRAB_REACH,
-                     GRAB_ZETA)
+from .config import GRAB_MAX_SPEED, GRAB_MIN_MASS, GRAB_OMEGA, GRAB_ZETA
 
 def pick_along_ray(system, start, end):
     """The primitive a mouse click would use. Returns (body, world_point) or None."""

@@ -9,9 +9,9 @@
 # http://projectchrono.org/license-chrono.txt.
 #
 # =============================================================================
-# PART 8 support: control something that isn't a car.
+# PLANT: control something that isn't a car.
 #
-# Parts 1-7 put a human in the loop around a Chrono::Vehicle.  Nothing about
+# Demos 1 and 2 put a human in the loop around a Chrono::Vehicle.  Nothing about
 # the pattern needs a vehicle, though.  The loop is:
 #
 #     read three numbers from the human  ->  push them into the model
@@ -51,12 +51,12 @@ import pychrono.vehicle as veh
 
 
 # =============================================================================
-# The Chrono::Vehicle plant (Parts 1-7)
+# The Chrono::Vehicle plant (PLANT = "vehicle")
 # =============================================================================
 
 
 class VehiclePlant:
-    """A wheeled Chrono::Vehicle: the plant Parts 1-7 use.
+    """A wheeled Chrono::Vehicle: the plant Demos 1 and 2 drive.
 
     Thin, because the vehicle model already does everything -- this exists so
     the rover and the crane have something to look like.

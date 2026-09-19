@@ -9,9 +9,9 @@
 # http://projectchrono.org/license-chrono.txt.
 #
 # =============================================================================
-# PART 7 support: where the driving happens.
+# SCENE: where the driving happens.
 #
-# Two scenes, one interface.  `build_scene()` returns the same small record
+# Two scenes, one interface.  `plan_scene()` returns the same small record
 # whichever one you pick, so the tutorial's simulation loop does not change:
 #
 #     terrain        a veh.RigidTerrain, already Initialize()d
@@ -19,7 +19,7 @@
 #     name           what to put in the window title
 #
 #   "flat"   200 x 200 m textured patch.  No download, no assets, runs on
-#            anything.  This is what Parts 1-6 have been using all along.
+#            anything.  This is what Demos 1 and 2 use.
 #
 #   "mcity"  the Mcity digital twin: a real 32-acre test facility, its road
 #            surface driven as a collision mesh and its buildings, poles,
@@ -33,7 +33,7 @@
 #     ./setup_mcity.sh --repo /path/to/mcity-digital-twin
 #
 # Point MCITY_DIR at the result (default <chrono data>/mcity).  If it is not
-# there, build_scene() says so and falls back to "flat" rather than failing:
+# there, plan_scene() says so and falls back to "flat" rather than failing:
 # a tutorial that cannot start is worse than one that starts smaller.
 #
 # =============================================================================
@@ -210,7 +210,8 @@ def _road_material(system):
     """Contact material for the driving surface, in the formulation the system uses.
 
     ChContactMaterialData describes the surface once and produces the SMC or NSC
-    material to match, which matters here because Part 8's plants do not all use
+    material to match, which matters here because PLANT's three plants do not
+    all use
     the same contact method: hand an SMC material to an NSC system and the ground
     ends up with no contact at all, so the plant falls through it.
 

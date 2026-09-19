@@ -75,8 +75,8 @@ FOOTER = "University of Wisconsin - Madison"
 # a number came from, it does not go on a slide.
 # =============================================================================
 N = {
-    # hil_manipulate.py, box dragged for one wall-clock second, with and without
-    # the real-time hold.
+    # demos/manipulate/main.py, box dragged for one wall-clock second, with and
+    # without the real-time hold.
     "unpaced_m": "88.7",
     "paced_m": "1.8",
     # Go2 from URDF: triangle meshes straight from the file, then convex hulls
@@ -96,8 +96,11 @@ N = {
     "panda_accel": "24,300 m/s^2",
     "yank_before": "35.14 m/s",
     "yank_after": "3.25 m/s",
-    # hil_push.py, impulse at the base COM, 50 ms window. Same rig, same robot,
-    # two controllers: a PD holding a stance, and the trained locomotion policy.
+    # demos/push/main.py --headless --sweep ... --fresh, impulse at the base COM,
+    # 50 ms window. Same rig, same robot, two controllers: a PD holding a stance,
+    # and the trained locomotion policy. The policy pair reproduces on demand;
+    # the PD pair does not any more -- see "The stance PD numbers" in
+    # demos/push/README.md for what was measured instead, and when.
     "push_fwd_ok": "325 N",
     "push_fwd_fail": "330 N",
     "push_lat_ok": "280 N",
@@ -106,17 +109,17 @@ N = {
     "pol_fwd_fail": "1900 N",
     "pol_lat_ok": "1100 N",
     "pol_lat_fail": "1200 N",
-    # The mouse layer, with and without the SWIG director. The workaround grew
-    # from one file to three when Linux and Windows got backends of their own;
-    # counted the same way as before, statements only, no blanks, comments or
-    # docstrings, across macos.py + linux.py + windows.py + camera.py.
-    # Both counted the same way: non-blank, non-comment, non-docstring lines.
-    # Comparing a hand-count of one file against a different rule for the
-    # other is how these drift apart.
+    # The mouse layer, with and without the SWIG director. Both sides counted
+    # the same way -- non-blank, non-comment, non-docstring lines -- because
+    # comparing a hand-count of one file against a different rule for the other
+    # is how these two drift apart.
     #   OS path  = macos.py + linux.py + windows.py + the shared camera maths
     #   Irrlicht = native.py, which the SWIG director makes possible
-    "lines_workaround": "716",
-    "lines_native": "80",
+    # These two MOVE whenever a backend is edited, and nothing recomputes them,
+    # so they are the pair most likely to be stale. 716/80 stood here until the
+    # Win32 button fix and native.py's self.addr landed.
+    "lines_workaround": "724",
+    "lines_native": "81",
 }
 
 
@@ -442,10 +445,10 @@ def build(check_only=False):
                           "# Console report: how far is the sim from wall time?",
                           "rtf = (d_wall / d_sim) if d_sim > 0 else 0.0")
     E["rt_setup"] = excerpt("demos/driver/tutorial_HIL_driver.py",
-                            "# Real-time setup (PART 1)",
+                            "# Real-time setup (Demo 1)",
                             "cum_timer = CumulativeRealtimeTimer()")
     E["rt_spin"] = excerpt("demos/driver/tutorial_HIL_driver.py",
-                           "# PART 1: spin in place for real time to catch up",
+                           "# Demo 1: spin in place for real time to catch up",
                            "cum_timer.spin(system.GetChTime())")
     E["kbd_call"] = excerpt("demos/driver/tutorial_HIL_driver.py",
                             'if KEYBOARD_MODE == "held":',

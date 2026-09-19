@@ -22,7 +22,8 @@ class Console:
         self.last = (0.0, 0.0, 0.0)
         self.commands = []
         self.addr = None
-        print(f"[udp] listening on {port} - now run:  python operator_console.py")
+        print(f"[udp] listening on {port} - "
+              "now run:  python archive/operator_console.py")
 
     def poll(self):
         while True:

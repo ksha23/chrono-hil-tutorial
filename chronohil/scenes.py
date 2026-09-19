@@ -13,7 +13,6 @@
 import os
 
 from .chrono_env import chrono
-from .config import GRAB_OMEGA
 from .controllers import (FreeDriveJoint, LimpJoint, LockedJoint,
                           StanceHolder, joint_readers)
 from .policy import Go2Policy, find_go2_policy

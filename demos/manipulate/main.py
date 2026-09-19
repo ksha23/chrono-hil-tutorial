@@ -8,7 +8,7 @@
 # in the LICENSE file at the top level of the distribution and at
 # http://projectchrono.org/license-chrono.txt.
 # =============================================================================
-"""DEMO 3: reach into a running simulation and pull on it.
+"""Demo 3: reach into a running simulation and pull on it.
 
     python demos/manipulate/main.py go2        a quadruped on a locomotion policy
     python demos/manipulate/main.py arm        a Franka holding position
@@ -31,9 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
 
 import pychrono.irrlicht as irr
 
-from chronohil import (FreeDriveJoint, GRAB_REACH, HANDLE_SPEED,
-                       LimpJoint, RENDER_FPS, STEP, StanceHolder, chrono,
-                       pick_along_ray, pick_at_crosshair, pick_near_ray,
+from chronohil import (FreeDriveJoint, HANDLE_SPEED, RENDER_FPS, STEP, chrono,
                        require_window, scene_arm, scene_go2, scene_place)
 from chronohil.input import Console, LocalInput, open_window_input
 from chronohil.watchdog import Watchdog
@@ -69,7 +67,7 @@ def main(mode, headless_script=None, use_udp=False, console=None):
     drag = Manipulator(system, grabbable, kinematic)
     dog = Watchdog(system, STEP, drag.grabber)
 
-    title = f"PART 9: {mode} - reach into the scene"
+    title = f"Demo 3: {mode} - reach into the scene"
     vis = irr.ChVisualSystemIrrlicht()
     vis.SetCameraVertical(chrono.CameraVerticalDir_Z)   # the world is Z-up
     vis.SetWindowTitle(title)
@@ -97,21 +95,20 @@ def main(mode, headless_script=None, use_udp=False, console=None):
     # immediately once its input receiver is off.
     vis.GetActiveCamera().setInputReceiverEnabled(False)
 
-    if console is not None:
-        pass            # injected, so the press/drag path can be driven by a test
-    elif headless_script is not None:
-        console = None
-    elif use_udp:
-        console = Console()
-    else:
-        # Returns None when this build cannot read its own 3D window, which is
-        # not an error: the local input window covers every platform.
-        console = open_window_input(vis, title, 1280, 800) or LocalInput()
-    sel = 0
+    # Three ways a person's numbers get in here, and the caller may already
+    # have chosen one:
+    #   console= passed in   a test drives the real press/drag path directly
+    #   headless_script=     nobody is driving; the script says what happens
+    #   neither              UDP, or the 3D window, or our own input window
+    if console is None and headless_script is None:
+        if use_udp:
+            console = Console()
+        else:
+            # Returns None when this build cannot read its own 3D window, which
+            # is not an error: the local input window covers every platform.
+            console = open_window_input(vis, title, 1280, 800) or LocalInput()
+    sel = 0             # which of `grabbable` the X key has selected
     lift = 0.0          # ] / [ toggle the handle moving up / down in Z
-    plane_angle = 0.0
-    grab_point = None
-    grab_normal = None
     seen_packet = False
     system.DoStepDynamics(STEP)          # the collision system must exist to raycast
 
@@ -130,11 +127,11 @@ def main(mode, headless_script=None, use_udp=False, console=None):
         print("  arrows move   [ ] up/down   Z grab   X select   T log   C reset\n"
               "  no mouse picking on this build, so Z grabs whatever X has selected\n")
 
-    # PART 1, applied here. Without it this loop steps as fast as the machine
-    # allows -- about fifty times real time on this Mac -- so a 1.2 m/s handle
-    # covers 60 m/s of scene, the placement box is gone before you see it, and a
-    # passive arm looks like it exploded. Everything downstream of this was being
-    # tuned against a clock running fifty times too fast.
+    # Demo 1's lesson, applied here. Without it this loop steps as fast as the
+    # machine allows -- about fifty times real time on this Mac -- so a 1.2 m/s
+    # handle covers 60 m/s of scene, the placement box is gone before you see
+    # it, and a passive arm looks like it exploded. Everything downstream of
+    # this was being tuned against a clock running fifty times too fast.
     rt_timer = chrono.ChRealtimeStepTimer()
     render_every = max(1, int(round(1.0 / (RENDER_FPS * STEP))))
     fired = set()
@@ -269,7 +266,8 @@ if __name__ == "__main__":
     mode = args[0] if args else "arm"
     if "-h" in sys.argv or "--help" in sys.argv:
         print(__doc__ or "")
-        print(f"usage: python hil_manipulate.py [{' | '.join(SCENES)}] [--udp]\n"
+        print(f"usage: python demos/manipulate/main.py "
+              f"[{' | '.join(SCENES)}] [--udp]\n"
               "\n"
               "  go2       a Unitree Go2 held up by a trained locomotion policy.\n"
               "            Drag a leg and it steps to keep its feet.\n"
@@ -288,9 +286,10 @@ if __name__ == "__main__":
         raise SystemExit(0)
     if mode not in SCENES:
         raise SystemExit(
-            f"usage: python hil_manipulate.py [{' | '.join(SCENES)}] [--udp]\n"
-            "  default: an input window opens alongside the 3D view, one command, one process\n"
-            "  --udp:   take input from operator_console.py in a second terminal instead")
+            f"usage: python demos/manipulate/main.py "
+            f"[{' | '.join(SCENES)}] [--udp]\n"
+            "  default: an input window opens beside the 3D view, one process\n"
+            "  --udp:   input from archive/operator_console.py in a second terminal")
     if mode == "go2":
         import os
         urdf = os.environ.get("GO2_URDF", scenes.GO2_URDF)

@@ -33,7 +33,7 @@ class LocalInput:
         self.pg = pygame
         pygame.init()
         self.screen = pygame.display.set_mode((460, 190))
-        pygame.display.set_caption("hil_manipulate - input (keep this window focused)")
+        pygame.display.set_caption("chrono-hil input (keep this window focused)")
         self.font = pygame.font.SysFont("menlo,dejavusansmono,monospace", 15)
         LocalInput.KEYS = {
             pygame.K_RIGHTBRACKET: "u", pygame.K_LEFTBRACKET: "d",

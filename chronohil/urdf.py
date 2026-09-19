@@ -34,7 +34,6 @@ def make_chrono_safe_urdf(path):
        describes itself in 5 boxes, 17 cylinders and 5 spheres, which is blocky
        but complete, and it is the physics we are here to push on anyway.
     """
-    import re, os
     src = open(path).read()
     out = src
     TINY = ('<inertial><origin xyz="0 0 0" rpy="0 0 0"/>'
@@ -66,7 +65,6 @@ def make_chrono_safe_urdf(path):
         else:
             out = out.replace(vis_block, "")
             dropped_meshes += 1
-    meshes = dropped_meshes
     safe = os.path.join(os.path.dirname(path), "_chrono_safe.urdf")
     open(safe, "w").write(out)
     if drop:
@@ -74,7 +72,7 @@ def make_chrono_safe_urdf(path):
               f"so the chain survives ({drop[0]}, ...)")
     if swapped:
         print(f"[urdf] using {swapped} converted .obj visual meshes")
-    if meshes:
-        print(f"[urdf] dropped {meshes} meshes with no .obj beside them; "
+    if dropped_meshes:
+        print(f"[urdf] dropped {dropped_meshes} meshes with no .obj beside them; "
               f"drawing collision shapes for those")
     return safe

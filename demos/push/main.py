@@ -8,7 +8,7 @@
 # in the LICENSE file at the top level of the distribution and at
 # http://projectchrono.org/license-chrono.txt.
 # =============================================================================
-"""DEMO 4: how hard can you shove it.
+"""Demo 4: how hard can you shove it.
 
     python demos/push/main.py                         click, aim, SPACE to fire
     python demos/push/main.py --headless --mag 300 --dir 1,0,0
@@ -41,15 +41,12 @@ import pychrono.irrlicht as irr
 HERE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import chronohil as H
-import chronohil.scenes as _scenes
 from chronohil import chrono
 
 from demos.push.panel import PushInput, PushMarker, PushPanel
-from demos.push.rig import (DUR_MAX, MAG_MAX, PushConfig, PushRig, RENDER_FPS, SETTLE,
-                  STEP, WARMUP, angles_from_unit, base_state, cold_rig,
-                  evaluate, log_record, parse_dir, parse_point, print_trace,
-                  run_headless, run_sweep, snapshot, summarize, unit_from_angles,
-                  write_trace)
+from demos.push.rig import (MAG_MAX, PushRig, RENDER_FPS, SETTLE, STEP,
+                            log_record, parse_dir, parse_point, print_trace,
+                            run_headless, run_sweep)
 
 def run_interactive(args):
     rig = PushRig(urdf=args.urdf, z_tol=args.z_tol, up_tol=args.up_tol,
@@ -59,7 +56,7 @@ def run_interactive(args):
     rig.cfg.set_direction(*parse_dir(args.dir))
     marker = PushMarker(rig.system)
 
-    title = "PART 10: push test - click the robot, then SPACE"
+    title = "Demo 4: push test - click the robot, then SPACE"
     vis = irr.ChVisualSystemIrrlicht()
     vis.SetCameraVertical(chrono.CameraVerticalDir_Z)      # or the world is sideways
     vis.SetWindowTitle(title)
@@ -109,7 +106,7 @@ def run_interactive(args):
     status = "ARMED"
     n = 0
     running = True
-    # The scripted hook, the same shape as hil_manipulate.main's headless_script:
+    # The scripted hook, the same shape as demos/manipulate/main.py's:
     # the demo can fire itself at a fixed time and quit at another, so the whole
     # windowed path can be exercised without a person in front of it.
     t0 = rig.t()
@@ -259,7 +256,10 @@ def run_interactive(args):
 # run_sweep called a parse_dir that was only ever defined here.
 def build_parser():
     p = argparse.ArgumentParser(
-        description="PART 10: configurable impulse pushes on a quadruped, "
+        # Spell the path the README tells you to type, not argparse's bare
+        # "main.py", which is ambiguous with the other demo's main.py.
+        prog="python demos/push/main.py",
+        description="Demo 4: configurable impulse pushes on a quadruped, "
                     "with a recovery metric.")
     p.add_argument("--headless", action="store_true",
                    help="no windows: fire one scripted push and print the trace")

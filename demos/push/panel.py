@@ -57,7 +57,7 @@ class PushInput:
                 (-1.0 if k("lbracket") else 0.0) + (1.0 if k("rbracket") else 0.0))
 
 
-PANEL_TITLE = "PART 10: push configurator"
+PANEL_TITLE = "Demo 4: push configurator"
 
 
 # -----------------------------------------------------------------------------
@@ -335,7 +335,3 @@ class PushMarker:
         self.arrow.SetPos(centre)
         self.arrow.SetRot(rot.GetQuaternion())
 
-
-# -----------------------------------------------------------------------------
-# The interactive demo
-# -----------------------------------------------------------------------------

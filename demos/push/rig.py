@@ -14,7 +14,6 @@ No UI in this file. run_headless() and run_sweep() below are the whole demo
 without a person, which is how the numbers in the talk were produced.
 """
 
-import copy
 import csv
 import math
 import os
@@ -28,12 +27,11 @@ import chronohil as H
 import chronohil.scenes as _scenes
 from chronohil import chrono
 
-STEP = 2e-3
+STEP = 2e-3           # s, the physics step
 RENDER_FPS = 50
-SETTLE = 1.5
+SETTLE = 1.5          # s of standing still before the reference state is taken
 MAG_MAX = 800.0       # N, the top of the magnitude slider
 DUR_MAX = 0.30        # s, the top of the duration slider
-WARMUP = 0.0
 
 def base_state(base):
     """(z, uprightness, speed, x, y) of the base. All copied out, never referenced.
@@ -616,7 +614,14 @@ def run_sweep(args):
     direction = parse_dir(args.dir)
     point = parse_point(args.point)
     trials = max(1, args.trials)
-    print(f"\n[rig] Go2 from URDF, {rig.mass:.2f} kg total, stance PD holding it up")
+    # Say which controller is actually holding the robot up. This line used to
+    # claim the stance PD unconditionally, and the threshold it reports is the
+    # one number that most depends on the answer: the PD recovers from 325 N,
+    # the trained policy from 1850 N.
+    holders = getattr(rig.system, "stance_holders", ())
+    control = ("trained locomotion policy" if holders
+               and type(holders[0]).__name__ == "Go2Policy" else "stance PD")
+    print(f"\n[rig] Go2 from URDF, {rig.mass:.2f} kg total, {control} holding it up")
     z, up, spd = rig.standing()
     print(f"[rig] settled at base z {z:.4f} m, uprightness {up:.4f}\n")
     print(f"sweeping {lo:.0f}:{hi:.0f}:{stepn:.0f} N for {args.dur*1000:.0f} ms, "
@@ -697,7 +702,3 @@ def run_sweep(args):
         print(f"[log] {args.log}")
     return rig, results, (a, b)
 
-
-# -----------------------------------------------------------------------------
-# Input: the PART 9 OS reader, with the keys this demo needs
-# -----------------------------------------------------------------------------
