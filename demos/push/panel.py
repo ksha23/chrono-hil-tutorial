@@ -87,6 +87,19 @@ class PushPanel:
     def __init__(self):
         import pygame
         self.pg = pygame
+        # ASK SDL NOT TO ACCELERATE ITS WINDOW SURFACE, before pygame.init().
+        #
+        # On Linux an accelerated surface creates a GLX context and makes it
+        # current, and Irrlicht then draws into pygame's drawable instead of its
+        # own: measured, the 3D view came back 0.0% non-black and the Chrono
+        # scene appeared in the panel window. With this set it is 99.0%. The
+        # same numbers come out of the code from before any of the input work,
+        # so it is SDL and Irrlicht contending over a context, not anything here.
+        #
+        # macOS does not need it and is unharmed: a shot taken with the panel
+        # open is 99.9% non-black either way. setdefault, so anyone who has a
+        # reason to want acceleration can still ask for it.
+        os.environ.setdefault("SDL_FRAMEBUFFER_ACCELERATION", "0")
         pygame.init()
         pygame.display.set_caption(PANEL_TITLE)
         self.screen = pygame.display.set_mode((self.W, self.H_))

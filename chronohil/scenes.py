@@ -16,7 +16,7 @@ from .chrono_env import chrono
 from .controllers import (FreeDriveJoint, LimpJoint, LockedJoint,
                           StanceHolder, joint_readers)
 from .policy import Go2Policy, find_go2_policy
-from .paths import FRANKA_URDF, GO2_URDF as _GO2_URDF_DEFAULT
+from .paths import FRANKA_URDF, GO2_POLICY, GO2_URDF as _GO2_URDF_DEFAULT
 from .urdf import make_chrono_safe_urdf
 
 GO2_URDF = _GO2_URDF_DEFAULT
@@ -170,15 +170,25 @@ def scene_go2(system):
             # contacts: past about 450 N of shove the solver goes non-finite
             # instead of the robot falling over, which reads as "the demo
             # crashed". At 600 it survives to 500 N and the cost is small --
-            # 8 s of sim goes from 1.4 s to 4.5 s of wall clock, still comfortably
-            # faster than real time. Beyond ~700 N it diverges again; that is a
-            # solver limit, not the policy failing, and it should be reported as one.
             print(f"[go2] locomotion policy: {os.path.basename(ckpt)}")
             hint = "drag a leg; the policy steps to keep its feet"
         except Exception as exc:
             print(f"[go2] policy unavailable ({exc}); falling back to the stance PD")
             ckpt = None
     if not ckpt:
+        # SAY SO, LOUDLY. Falling back silently is the worst outcome here: the
+        # robot still stands, still gets dragged, still recovers from a shove --
+        # it just recovers from a different one. The push rig's forward threshold
+        # is 600 N on this controller and 1850 N on the policy, so a quiet
+        # fallback turns a demo into a wrong number in front of an audience.
+        if globals().get("GO2_CONTROL", "policy") == "policy":
+            print("[go2] " + "!" * 62)
+            print("[go2] NO POLICY CHECKPOINT -- running the PD stance controller.")
+            print("[go2] This is NOT the locomotion policy. It holds a pose and")
+            print("[go2] cannot step, so push thresholds will be far lower.")
+            print(f"[go2] Expected it at: {GO2_POLICY}")
+            print("[go2] Set GO2_POLICY_CKPT, or see ASSETS.md. Needs torch too.")
+            print("[go2] " + "!" * 62)
         STANCE = globals().get("GO2_STANCE", {"hip": 0.0, "thigh": 0.9, "calf": -1.8})
         holders = []
         for leg in ("FL", "FR", "RL", "RR"):
