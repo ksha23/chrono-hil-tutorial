@@ -121,20 +121,31 @@ happy to hand you a build from five months earlier that does not have it.
 **Intel Macs:** `osx-64` PyChrono is frozen at 8.0.0 (2023) and much of the API
 used here does not exist in it. Apple Silicon, Linux and Windows all have 10.0.0.
 
-**Windows: run the demos from the desktop, not over ssh.** Every demo here
-works on Windows, including the headless ones, but only from a session that has
-a real desktop. In a Windows OpenSSH shell you land in session 0, a service
-window station, and there `import pychrono` never returns: it hangs inside the
-extension modules that link a graphics stack, `vsg3d` first and `fsi` next if
-you stub that one out. It is not slow, it is stopped, and PyChrono's own
-`try: from . import vsg3d / except: pass` cannot catch a DLL that never
-finishes loading. So `--headless` on Windows means "no window is opened", not
-"no desktop is needed". If you must drive it remotely, use RDP, or hand the
-command to the console session with
-`schtasks /create /tn run /tr <your.bat> /sc once /st 00:00 /it /f` and
-`schtasks /run /tn run`. The one thing that does work over ssh is
-`python demos/driver/tutorial_HIL_driver.py --help`, because that exits before
-the import. (Measured on 10.0.26200, `pychrono 10.0.0=py312h418371c_1187`.)
+**Windows: activate the environment, do not just run its python.exe.** This is
+the one Windows-specific thing worth knowing, and it costs an afternoon if you
+do not. Running `...\envs\chrono-hil\python.exe demo.py` by full path looks
+equivalent to activating and is not: activation is what puts
+`envs\chrono-hil\Library\bin` on the DLL search path.
+
+Without it, conda's `SDL2.dll` is the thing that breaks, and it breaks silently.
+That DLL is `sdl2-compat`, which implements the SDL2 API on top of SDL3 and
+loads `SDL3.dll` **by name** at import time. Off the search path it cannot find
+it, and it reports that by popping a modal message box -- `Failed loading SDL3
+library.` -- rather than by raising. So `import pygame` does not fail, it
+**hangs forever**, with no traceback, no stderr, and, if you launched it
+remotely or from a script, no visible dialog either. The process sits in a
+`UserRequest` wait inside the DLL loader, holding the loader lock, and even
+`faulthandler`'s timeout cannot kill it.
+
+The fix is `conda activate chrono-hil` (or `conda run -n chrono-hil ...`, or a
+`call ...\Scripts\activate.bat chrono-hil` at the top of a `.bat`). With that,
+everything works, and works over plain ssh -- session 0, no desktop, no RDP,
+no scheduled task. Measured on 10.0.26200, `pychrono 10.0.0=py312h418371c_1187`,
+env activated: all imports 0.3 s, `tests_parts.py arm` 10/10, `tests_parts.py
+go2` 17/17, `tests_drag.py arm` 0.2429 m against macOS's 0.2430 m, the crane at
+RTF 1.00, and the push rig recovering from 600 N with the same trace as macOS.
+Irrlicht prints `Cannot use default video driver - fall back to OpenGL` and
+carries on.
 
 ## Demos 1 and 2: the clock, and a person driving
 
