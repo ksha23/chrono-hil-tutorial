@@ -112,6 +112,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import chronohil as H
 import chronohil.scenes as _scenes
 from chronohil.input.window import open_window_input
+from chronohil.input.window.camera import CameraRay
 
 STEP = 2e-3
 RENDER_FPS = 50
@@ -138,14 +139,14 @@ TAG0 = 1000           # placeable bodies get tags TAG0, TAG0+1, ...; see build_s
 
 # -----------------------------------------------------------------------------
 # Camera maths.  world_to_pixel is the exact inverse of the ray that
-# open_window_input.ray_through builds, so the two cannot drift apart.
+# CameraRay.ray_through builds, so the two cannot drift apart.
 # -----------------------------------------------------------------------------
 def camera_basis(vis):
     """(eye, forward, right, up, tan(fov/2), aspect) from the Irrlicht node.
 
     vis.GetCameraPosition() reports (0,0,0) for a camera made with AddCamera, so
     the node is the only honest source.  `right` and `up` are built exactly the
-    way open_window_input.ray_through builds them; a render-to-file check against
+    way CameraRay.ray_through builds them; a render-to-file check against
     Irrlicht's own output puts a projected point within ~1 px of where it lands.
     """
     cam = vis.GetActiveCamera()
@@ -202,15 +203,16 @@ def ray_plane_z(origin, far, z):
     return chrono.ChVector3d(origin.x + d.x * t, origin.y + d.y * t, z)
 
 
-class RayCaster:
+class RayCaster(CameraRay):
     """The pixel-to-ray maths from PART 9, with no OS input attached.
 
-    open_window_input.ray_through only needs .vis, .cw and .ch, so borrowing the
-    function itself is exact reuse: the interactive path and the headless test
-    path run the identical code, which is the point.
+    CameraRay.ray_through only needs .vis, .cw and .ch, so inheriting it is
+    exact reuse: the interactive path and the headless test path run the
+    identical code, which is the point.  It used to be borrowed off the
+    backend class; that name became a FUNCTION when the backends were made
+    selectable, and this file stopped importing at all until the maths moved
+    to chronohil/input/window/camera.py where both can reach it.
     """
-
-    ray_through = open_window_input.ray_through
 
     def __init__(self, vis, width=WIN_W, height=WIN_H):
         self.vis, self.cw, self.ch = vis, width, height

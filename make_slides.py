@@ -106,9 +106,17 @@ N = {
     "pol_fwd_fail": "1900 N",
     "pol_lat_ok": "1100 N",
     "pol_lat_fail": "1200 N",
-    # The mouse layer, with and without the SWIG director.
-    "lines_workaround": "135",
-    "lines_native": "56",
+    # The mouse layer, with and without the SWIG director. The workaround grew
+    # from one file to three when Linux and Windows got backends of their own;
+    # counted the same way as before, statements only, no blanks, comments or
+    # docstrings, across macos.py + linux.py + windows.py + camera.py.
+    # Both counted the same way: non-blank, non-comment, non-docstring lines.
+    # Comparing a hand-count of one file against a different rule for the
+    # other is how these drift apart.
+    #   OS path  = macos.py + linux.py + windows.py + the shared camera maths
+    #   Irrlicht = native.py, which the SWIG director makes possible
+    "lines_workaround": "716",
+    "lines_native": "80",
 }
 
 
@@ -1107,10 +1115,13 @@ def build(check_only=False):
                  0, 0)] + [E["native"]],
                [f"The pick and the pull were both one call. Hearing the click is "
                 f"the step that is not: without the director it means going around "
-                f"Chrono to the operating system, `{N['lines_workaround']} lines`, "
-                f"macOS only, and it breaks when another window takes focus.",
-                f"With it, the same capability is `{N['lines_native']} lines` of "
-                f"ordinary PyChrono. Upstream PR to follow this talk."],
+                f"Chrono to the operating system: `{N['lines_workaround']} lines` "
+                f"across three backends, one per platform, each asking where the "
+                f"cursor is, whether the button is down, and where our window sits "
+                f"on screen.",
+                f"With it, the same capability is `{N['lines_native']} lines` that "
+                f"run wherever Irrlicht does, because the events already arrive in "
+                f"window coordinates. Upstream PR to follow this talk."],
                top=1.32)
     # The patch block above is hand-written, not quoted, so drop its fake range
     # from the title rather than cite lines 0 to 0.

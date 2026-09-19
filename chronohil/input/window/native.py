@@ -18,9 +18,7 @@ macOS sibling next door becomes dead weight. Without it, `available()` returns
 False and nothing here is used.
 """
 
-import math
-
-from ...chrono_env import chrono
+from .camera import CameraRay
 
 
 def available():
@@ -73,8 +71,8 @@ else:
     _Receiver = None
 
 
-class NativeWindowInput:
-    """The same surface the macOS backend offers, with none of the OS calls."""
+class NativeWindowInput(CameraRay):
+    """The same surface the OS backends offer, with none of the OS calls."""
 
     # Irrlicht key codes, so no platform table is needed
     K = {"left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
@@ -97,6 +95,11 @@ class NativeWindowInput:
         self.prev_mouse = False
         self.last = (0.0, 0.0, 0.0)
         self._rendered = False
+        # The loop reads console.addr to report the first UDP packet, and
+        # every other backend carries it. Without it this one raises
+        # AttributeError on the first step -- a break that only appears on
+        # the branch where this backend is the one selected.
+        self.addr = ("direct", 0)
         print("[input] reading the 3D window through Irrlicht (no OS calls)")
 
     # -- the same methods the macOS backend exposes --------------------------

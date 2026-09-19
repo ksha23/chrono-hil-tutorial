@@ -18,11 +18,28 @@ chronohil/input/window/native.py for the one-line change that removes the need
 for any of this.
 """
 
-import math
+from .camera import CameraRay
 
-from ...chrono_env import chrono
+WHAT = "macOS"
 
-class MacOSWindowInput:
+
+def open_input(vis, title, content_w, content_h, edges=None, quiet=False):
+    """A macOS backend, or None if this machine cannot give us one.
+
+    The import is what fails when pyobjc is absent, which is the common case on
+    a conda env built by hand: environment.yml marks the three pyobjc wheels
+    darwin-only, and someone who installed the packages one at a time usually
+    has none of them.
+    """
+    return MacOSWindowInput(vis, title, content_w, content_h, edges=edges)
+
+
+def open_panel_pointer(title, content_w, content_h):
+    """The panel's cursor. See PanelPointer at the bottom of this file."""
+    return PanelPointer(title, content_w, content_h)
+
+
+class MacOSWindowInput(CameraRay):
     """Mouse and keyboard read from the OS, so they work ON the 3D window.
 
     PyChrono cannot read that window itself: SWIG directors are off so
@@ -114,32 +131,8 @@ class MacOSWindowInput:
         return None
 
     # -- the ray Irrlicht would not give us ----------------------------------
-    def ray_through(self, px, py, reach=60.0):
-        cam = self.vis.GetActiveCamera()
-        # vis.GetCameraPosition() reports (0,0,0) for a camera added with
-        # AddCamera, so ask the Irrlicht node itself. Chrono passes world
-        # coordinates through 1:1 once SetCameraVertical(Z) is set.
-        cp, ct = cam.getAbsolutePosition(), cam.getTarget()
-        eye = chrono.ChVector3d(cp.X, cp.Y, cp.Z)
-        tgt = chrono.ChVector3d(ct.X, ct.Y, ct.Z)
-        fwd = tgt - eye
-        n = fwd.Length()
-        if n < 1e-9:
-            return None
-        fwd = fwd / n
-        world_up = chrono.ChVector3d(0, 0, 1)
-        right = fwd.Cross(world_up)
-        if right.Length() < 1e-6:
-            right = chrono.ChVector3d(1, 0, 0)
-        right = right / right.Length()
-        up = right.Cross(fwd)
-        tan_v = math.tan(cam.getFOV() * 0.5)
-        aspect = cam.getAspectRatio()
-        ndc_x = (2.0 * px / self.cw) - 1.0
-        ndc_y = 1.0 - (2.0 * py / self.ch)
-        d = fwd + right * (ndc_x * tan_v * aspect) + up * (ndc_y * tan_v)
-        d = d / d.Length()
-        return eye, eye + d * reach
+    # ray_through() comes from CameraRay: identical on every backend, so it
+    # lives in camera.py rather than three times over. See that file.
 
     # -- Console-compatible surface -----------------------------------------
     def poll(self):
