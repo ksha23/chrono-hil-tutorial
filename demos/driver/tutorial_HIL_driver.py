@@ -190,10 +190,11 @@ class DriverInputs:
 class WindowInputs(DriverInputs):
     """A person driving a plant that has no ChVehicle, from our own window.
 
-    ChInteractiveDriver needs a ChVehicle, so a crane cannot use it. That used
-    to leave UDP as the only way to put a human in a non-vehicle plant's loop,
-    and when UDP went, so did hand-driving the crane -- which is the one thing
-    the crane exists to show.
+    ChInteractiveDriver needs a ChVehicle, so a crane cannot use it, and there
+    is nothing else in Chrono to fall back on: no other module has a driver
+    abstraction at all. Something has to read the keys, so this is it -- and
+    the size of it is the point, because a crane being hand-drivable is the one
+    thing the crane is here to show.
 
     LocalInput is the portable pygame window the manipulation demo already uses.
     It needs no second terminal and no socket, and it hands back exactly the
