@@ -137,6 +137,12 @@ class AnchorError(Exception):
     pass
 
 
+# Slides that asked for a figure and had no room left for it. Filled in by
+# bullets(); reported at the end of a build, because silence here is how a
+# missing picture reaches an audience.
+DROPPED = []
+
+
 def excerpt(path, start, end=None, extra=0, strip_blank=True):
     """Pull a block out of a source file by anchor text.
 
@@ -592,6 +598,12 @@ def build(check_only=False):
             room = (6.15 if cite else 7.00) - top
             if room > 0.9:
                 place_shots(s, shots, top=top, height=min(2.55, room))
+            else:
+                # This used to drop the figure and say nothing, which is how a
+                # slide promising four demos ended up showing three. A slide
+                # that asks for a picture and gets none is a content bug, so it
+                # is reported by name and the fix is to cut bullets.
+                DROPPED.append((head, shots, round(room, 2)))
         if cite:
             note_box(s, cite, 6.30, size=13)
         finish(s)
@@ -1032,13 +1044,15 @@ def build(check_only=False):
              "keyboard straight into ChInteractiveDriver, HMMWV on rigid terrain",
              "the whole definition satisfied in one window, and the baseline every "
              "other demo is measured against",
-             ["`INPUT_SOURCE = \"keyboard\"`, `KEYBOARD_MODE = \"held\"`",
-              "W/A/S/D drive. The arrow keys are the chase camera, not the car.",
-              "Try `\"cumulative\"` and feel the difference a key-state API makes."],
-             shots=["hmmwv.png"],
-             note=["This is the whole definition satisfied in one window: input "
-                   "reaches the state, the state comes back on screen, and the "
-                   "timer holds the pace."])
+             ["`INPUT_SOURCE = \"keyboard\"`, `KEYBOARD_MODE = \"held\"`. "
+              "W/A/S/D drive; the arrow keys are the chase camera, not the car. "
+              "Switch to `\"cumulative\"` to feel what a key-state API buys you.",
+              "Then `PLANT = \"crane\"`: same loop, same keys, no `ChVehicle` "
+              "anywhere, and nothing damps the payload's swing except you."],
+             shots=["hmmwv.png", "crane_swing.png"],
+             note=["The whole definition satisfied in one window: input reaches "
+                   "the state, the state comes back on screen, and the timer "
+                   "holds the pace."])
 
     # =========================================================================
     # Slides 24-31. Reaching into the scene
@@ -1236,6 +1250,9 @@ def build(check_only=False):
     print(f"[deck] {len(prs.slides.__iter__.__self__._sldIdLst)} slides -> {DECK}")
     for k, (_, lo, hi) in E.items():
         print(f"       cited {k:10s} lines {lo} to {hi}")
+    for head, shots, room in DROPPED:
+        print(f"[warn] no room for {', '.join(shots)} on {head!r} "
+              f"({room:+.2f} in short) - cut a bullet")
 
 
 def export_pdf():

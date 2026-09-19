@@ -67,19 +67,13 @@ class Gearbox:
     """Read and drive a vehicle's transmission, whatever kind it is.
 
     Handles the automatic/manual difference in one place so the rest of the
-    tutorial can say `gearbox.command("up")` without caring, and can print
-    `gearbox.describe()` without a branch.
-    """
+    tutorial can print `gearbox.describe()` without a branch.
 
-    #: single-character commands, the wire form for a device of your own
-    COMMANDS = {
-        "u": "up",        # shift up
-        "d": "down",      # shift down
-        "f": "forward",   # drive mode D
-        "n": "neutral",   # drive mode N
-        "r": "reverse",   # drive mode R
-        "m": "mode",      # toggle automatic <-> manual shifting
-    }
+    Note what is NOT here: nothing that shifts. The shift keys are bound by
+    Chrono's own Irrlicht event receiver, so this tutorial never sees them --
+    which is the point of the slide about what Chrono::Vehicle gives a vehicle
+    for free.
+    """
 
     def __init__(self, vehicle):
         self.transmission = vehicle.GetTransmission()
@@ -114,39 +108,7 @@ class Gearbox:
             return f"D {gear}/{top} {shifting}"
         return f"M {gear}/{top}"
 
-    # -- driving ------------------------------------------------------------
-
-    def command(self, what):
-        """Apply one command by name; unknown names are ignored.
-
-        Ignoring rather than raising is deliberate: these arrive from a device
-        we do not control, and a typo on the operator's end should not take the
-        simulation down.
-        """
-        if not self.present:
-            return
-        if what == "up":
-            self.transmission.ShiftUp()
-        elif what == "down":
-            self.transmission.ShiftDown()
-        elif self.auto is None:
-            return  # the rest of the commands only mean something on an automatic
-        elif what == "forward":
-            self.auto.SetDriveMode(veh.ChAutomaticTransmission.DriveMode_FORWARD)
-        elif what == "neutral":
-            self.auto.SetDriveMode(veh.ChAutomaticTransmission.DriveMode_NEUTRAL)
-        elif what == "reverse":
-            self.auto.SetDriveMode(veh.ChAutomaticTransmission.DriveMode_REVERSE)
-        elif what == "mode":
-            am = veh.ChAutomaticTransmission.ShiftMode_AUTOMATIC
-            mm = veh.ChAutomaticTransmission.ShiftMode_MANUAL
-            self.auto.SetShiftMode(mm if self.auto.GetShiftMode() == am else am)
-
-    def command_char(self, ch):
-        """Apply one single-character command (the wire form above)."""
-        name = self.COMMANDS.get(ch)
-        if name:
-            self.command(name)
+    # -- setting up ---------------------------------------------------------
 
     def set_manual_shifting(self, manual):
         """Start in manual shifting, so ']' and '[' actually do something.

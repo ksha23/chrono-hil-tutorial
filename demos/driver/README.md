@@ -61,6 +61,15 @@ that turns each one on.
 | `TRANSMISSION = "manual"` | a gearbox to row through. Only `VEHICLE = "audi"` has one; the others say so rather than silently ignoring it. |
 | `PLANT = "crane"` | a gantry crane, driven by the same three numbers. It has no `ChVehicle`, so `ChDataDriver` and `ChInteractiveDriver` are both out; `ScriptedInputs` and `WindowInputs` stand in, and the loop cannot tell. |
 
+![the four vehicle models](../../images/vehicle_grid.png)
+
+`SHOW_VEHICLE_HUD` is the one to leave on. It is Chrono's own overlay, not
+ours, and it already reports the RTF -- both the simulation's and the step's --
+next to the driver inputs, which is the whole of Demo 1 in the corner of the
+Demo 2 window:
+
+![the built-in vehicle HUD](../../images/overlay_hud.png)
+
 The crane is the one to try, on `INPUT_SOURCE = "keyboard"`. Nothing damps the
 payload's swing except you: a small input window of our own opens, the arrow
 keys there drive the bridge and the trolley, and the console scores you with
