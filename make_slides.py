@@ -106,8 +106,11 @@ N = {
     "pol_fwd_fail": "1900 N",
     "pol_lat_ok": "1100 N",
     "pol_lat_fail": "1200 N",
-    # The mouse layer, with and without the SWIG director.
-    "lines_workaround": "135",
+    # The mouse layer, with and without the SWIG director. The workaround grew
+    # from one file to three when Linux and Windows got backends of their own;
+    # counted the same way as before, statements only, no blanks, comments or
+    # docstrings, across macos.py + linux.py + windows.py + camera.py.
+    "lines_workaround": "700",
     "lines_native": "56",
 }
 

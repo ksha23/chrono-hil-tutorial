@@ -18,9 +18,7 @@ macOS sibling next door becomes dead weight. Without it, `available()` returns
 False and nothing here is used.
 """
 
-import math
-
-from ...chrono_env import chrono
+from .camera import CameraRay
 
 
 def available():
@@ -73,8 +71,8 @@ else:
     _Receiver = None
 
 
-class NativeWindowInput:
-    """The same surface the macOS backend offers, with none of the OS calls."""
+class NativeWindowInput(CameraRay):
+    """The same surface the OS backends offer, with none of the OS calls."""
 
     # Irrlicht key codes, so no platform table is needed
     K = {"left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
@@ -111,25 +109,7 @@ class NativeWindowInput:
             return self.rx.x, self.rx.y
         return None
 
-    def ray_through(self, px, py, reach=60.0):
-        cam = self.vis.GetActiveCamera()
-        cp, ct = cam.getAbsolutePosition(), cam.getTarget()
-        eye = chrono.ChVector3d(cp.X, cp.Y, cp.Z)
-        fwd = chrono.ChVector3d(ct.X - cp.X, ct.Y - cp.Y, ct.Z - cp.Z)
-        n = fwd.Length()
-        if n < 1e-9:
-            return None
-        fwd = fwd / n
-        right = fwd.Cross(chrono.ChVector3d(0, 0, 1))
-        right = (chrono.ChVector3d(1, 0, 0) if right.Length() < 1e-6
-                 else right / right.Length())
-        up = right.Cross(fwd)
-        tan_v = math.tan(cam.getFOV() * 0.5)
-        ndc_x = (2.0 * px / self.cw) - 1.0
-        ndc_y = 1.0 - (2.0 * py / self.ch)
-        d = fwd + right * (ndc_x * tan_v * cam.getAspectRatio()) + up * (ndc_y * tan_v)
-        d = d / d.Length()
-        return eye, eye + d * reach
+    # ray_through() comes from CameraRay, shared with every OS backend.
 
     def poll(self):
         for name, cmd in self.EDGE.items():

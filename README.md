@@ -40,7 +40,7 @@ Every script takes `--help`. The switches for demos 1 and 2 live in the
 | `demos/manipulate/` | demo 3: picking and dragging |
 | `demos/push/` | demo 4: the push rig and its panel |
 | `chronohil/` | everything the demos are assembled from. Portable |
-| `chronohil/input/window/` | reading the 3D window. `native.py` is the portable way and needs one line in Chrono; `macos.py` is the fallback until that lands |
+| `chronohil/input/window/` | reading the 3D window. `native.py` is the portable way and needs one line in Chrono; `macos.py`, `linux.py` and `windows.py` ask the operating system instead, until that lands |
 | `make_slides.py` | builds the deck; `--pdf` exports it too |
 | `experimental/` | the one-line SWIG change, and what it buys |
 | `archive/` | earlier demos, not presented |
@@ -256,10 +256,16 @@ to produce.
 
 ## The mouse layer is not Chrono
 
-The grab-and-drag in `hil_manipulate.py` reaches the Irrlicht window through
-macOS itself. That is 135 lines, macOS-only, and a workaround rather than a
-capability: PyChrono exposes `irr::IEventReceiver` but without SWIG directors,
-so it is abstract with no constructor and cannot be implemented from Python.
+The grab-and-drag in `hil_manipulate.py` reaches the Irrlicht window through the
+operating system: Quartz and AppKit on macOS, Xlib on X11, user32 on Windows.
+That is about 700 lines across three files, no two of which can be tested on the
+same machine, and a workaround rather than a capability: PyChrono exposes
+`irr::IEventReceiver` but without SWIG directors, so it is abstract with no
+constructor and cannot be implemented from Python.
+
+Under Wayland it cannot be written at all. No Wayland client may ask where the
+cursor is while it is over someone else's surface, so `linux.py` says so and
+returns None, and the demo opens its own input window instead.
 
 Adding one line to Chrono's SWIG interface fixes it, and the same feature then
 takes 18 portable lines. Built, tested and written up in
