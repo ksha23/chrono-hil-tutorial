@@ -460,9 +460,6 @@ def build(check_only=False):
     E["kbd_call"] = excerpt("demos/driver/tutorial_HIL_driver.py",
                             'if KEYBOARD_MODE == "held":',
                             "driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)")
-    E["keyboard"] = excerpt("demos/driver/tutorial_HIL_driver.py",
-                            'elif INPUT_SOURCE == "keyboard":',
-                            "driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)")
     E["crane"] = excerpt("demos/driver/hil_plants.py",
                          "        # Throttle drives forward, braking drives back",
                          "self.cross_speed.SetSetpoint(inputs.m_steering * self.MAX_CROSS_SPEED, t)")
@@ -989,7 +986,11 @@ def build(check_only=False):
                "reads it as the current one.",
                "The convention costs something, and the crane shows the bill: it "
                "has one travel axis and was handed two pedals, so it computes "
-               "`throttle - braking`. No crane operator would recognise that."])
+               "`throttle - braking`. No crane operator would recognise that.",
+               "The producing end is just as small. `WindowInputs` opens a window, "
+               "reads three floats out of it, and exposes the accessors `ChDriver` "
+               "exposes -- about twenty lines, and the crane is hand-drivable "
+               "without a line of Chrono::Vehicle in it."])
 
     bullets("Input devices Chrono already speaks",
             ["`ChInteractiveDriver` covers two CLASSES of device, not two devices:",

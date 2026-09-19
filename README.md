@@ -171,7 +171,11 @@ and it is three decisions.
 produces and a plant consumes, and make it device-independent. This tutorial
 reuses the vehicle convention -- steering, throttle, braking in [-1,1] and
 [0,1] -- so one set of three numbers drives a car and a crane without either
-end knowing what is on the other.
+end knowing what is on the other. `WindowInputs` in
+`demos/driver/tutorial_HIL_driver.py` is the whole producing end: ~20 lines
+that open a window, read three floats out of it and expose the same accessors
+`ChDriver` does, so a plant that was written against `ChDriver` accepts it
+unchanged.
 
 **2. Bind those numbers to actuation.** This is the only plant-specific part,
 and Chrono gives you four routes into a model, plus one that is not in the loop
@@ -268,8 +272,16 @@ for it at the binding: the crane computes `throttle - braking`, because it has
 one travel axis and the convention gave it two pedals. No crane operator would
 recognise that.
 
-Set `PLANT = "crane"` in `tutorial_HIL_driver.py` to drive it. It has no
-`ChVehicle`, so it takes `INPUT_SOURCE = "data"`.
+Set `PLANT = "crane"` in `tutorial_HIL_driver.py` to drive it by hand. It has
+no `ChVehicle`, so `ChInteractiveDriver` is not available to it -- a small
+input window of our own opens instead, and the arrow keys there drive the
+bridge and the trolley. Keep THAT window focused, not the 3D view.
+
+One measured detail, because it is the real-time lesson in miniature: that
+window is repainted 30 times a second, not once per step. Painting it every
+step drops the crane to RTF 2.78 on this machine, against 1.00 with the
+repaint throttled. Reading the keys stays on the physics clock, so no keypress
+is missed -- it is drawing that cannot afford to be there.
 
 ## The Go2's locomotion policy
 

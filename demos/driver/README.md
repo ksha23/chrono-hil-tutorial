@@ -59,10 +59,13 @@ that turns each one on.
 |---|---|
 | `VEHICLE`, `SHOW_*` | `"hmmwv"`, `"sedan"`, `"uazbus"`, `"gator"` or `"audi"`, and the built-in Irrlicht overlay |
 | `TRANSMISSION = "manual"` | a gearbox to row through. Only `VEHICLE = "audi"` has one; the others say so rather than silently ignoring it. |
-| `PLANT = "crane"` | a gantry crane, driven by the same three numbers. It has no `ChVehicle`, so use `INPUT_SOURCE = "data"`. |
+| `PLANT = "crane"` | a gantry crane, driven by the same three numbers. It has no `ChVehicle`, so `ChDataDriver` and `ChInteractiveDriver` are both out; `ScriptedInputs` and `WindowInputs` stand in, and the loop cannot tell. |
 
-The crane is the one to try. Nothing damps the payload's swing except the
-numbers you feed it.
+The crane is the one to try, on `INPUT_SOURCE = "keyboard"`. Nothing damps the
+payload's swing except you: a small input window of our own opens, the arrow
+keys there drive the bridge and the trolley, and the console scores you with
+the swing angle and the miss distance. Keep THAT window focused, not the 3D
+view.
 
 ## The files here
 

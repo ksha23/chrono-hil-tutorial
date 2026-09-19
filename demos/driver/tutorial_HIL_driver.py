@@ -65,7 +65,10 @@ if "-h" in sys.argv or "--help" in sys.argv:
           "\n"
           "  Demo 2, a person driving\n"
           "      INPUT_SOURCE = \"keyboard\",  KEYBOARD_MODE = \"held\"\n"
-          "      W/A/S/D drive. The arrow keys are the chase camera.\n"
+          "      A vehicle: W/A/S/D drive, in the 3D window. The arrow keys\n"
+          "      there are the chase camera, not driving controls.\n"
+          "      PLANT = \"crane\": no ChVehicle, so a small input window of\n"
+          "      our own opens. Keep THAT one focused; arrow keys drive.\n"
           "\n"
           "  Not numbered, and in the same block: VEHICLE, TRANSMISSION,\n"
           "  PLANT (\"crane\") and the SHOW_* overlay switches.")
@@ -182,6 +185,57 @@ class DriverInputs:
 
     def Advance(self, step):
         pass
+
+
+class WindowInputs(DriverInputs):
+    """A person driving a plant that has no ChVehicle, from our own window.
+
+    ChInteractiveDriver needs a ChVehicle, so a crane cannot use it. That used
+    to leave UDP as the only way to put a human in a non-vehicle plant's loop,
+    and when UDP went, so did hand-driving the crane -- which is the one thing
+    the crane exists to show.
+
+    LocalInput is the portable pygame window the manipulation demo already uses.
+    It needs no second terminal and no socket, and it hands back exactly the
+    three floats the plant protocol wants. Keep ITS window focused, not the 3D
+    view: the arrow keys drive, because this is our window, not Chrono's.
+    """
+
+    # Seconds of simulated time between repaints of the input window.  Reading
+    # the keys is cheap and is done every step, so no input is ever missed;
+    # PAINTING is not, and this is the whole reason the two are separated.
+    REDRAW_DT = 1.0 / 30.0
+
+    def __init__(self):
+        super().__init__()
+        from chronohil.input import LocalInput
+        self.dev = LocalInput()
+        self.next_draw = 0.0
+
+    def Synchronize(self, t):
+        steer, thr, brk = self.dev.poll()
+        self.dev.take_commands()  # shift keys; a crane has no gearbox to shift
+        self.m_steering, self.m_throttle, self.m_braking = steer, thr, brk
+
+        # The window has to be painted or it stays blank, and a blank window is
+        # indistinguishable from a hung one.  It doubles as the key legend,
+        # which is the part people need in front of them.
+        #
+        # But paint it ONCE PER STEP and the crane runs at RTF 2.78 -- measured,
+        # against 1.00 with this block removed.  A 3 ms step leaves 3 ms for
+        # everything, and one pygame.display.flip() costs more than that on its
+        # own.  A human interface is a RENDER, at render rates; putting it on
+        # the physics clock is the same mistake as rendering every step.
+        if t < self.next_draw:
+            return
+        self.next_draw = t + self.REDRAW_DT
+        self.dev.draw([
+            "keep THIS window focused",
+            "up/down  bridge travel   left/right  trolley",
+            "ESC  quit",
+            f"t {t:6.2f} s   steer {steer:+.2f}  "
+            f"thr {thr:.2f}  brk {brk:.2f}",
+        ])
 
 
 class ScriptedInputs(DriverInputs):
@@ -427,11 +481,6 @@ def main():
     # "data") - which is the lesson, not a limitation: the three numbers did
     # not have to change to drive a crane.
     vehicle = plant.vehicle if PLANT == "vehicle" else None
-    if PLANT != "vehicle" and INPUT_SOURCE == "keyboard":
-        raise SystemExit(
-            f"\nINPUT_SOURCE = {INPUT_SOURCE!r} needs a ChInteractiveDriver, which needs a\n"
-            f"Chrono::Vehicle, and PLANT = {PLANT!r} does not have one.\n"
-            f"Use INPUT_SOURCE = 'data'.\n")
 
     # -----------------------------------------------------------------------
     # Create the driver system - this is where the human plugs in
@@ -458,36 +507,44 @@ def main():
         # to the chase camera (zoom and orbit), which is a separate Irrlicht event
         # receiver.  Easy to get wrong, because every other part of this tutorial
         # drives with the arrow keys - but those are OUR pygame console, not Chrono.
-        driver = veh.ChInteractiveDriver(vehicle)
-        driver.SetGains(4.0, 4.0, 4.0)  # first-order lag from key target to applied input
+        if not vehicle:
+            # No ChVehicle, so no ChInteractiveDriver -- none of the setup below
+            # exists for this plant.  Our own window instead, which is how
+            # anything that is not a vehicle takes human input.  Drive it with
+            # the ARROW keys, in ITS window, not in the 3D view.
+            driver = WindowInputs()
+        else:
+            driver = veh.ChInteractiveDriver(vehicle)
+            driver.SetGains(4.0, 4.0, 4.0)  # first-order lag from key to applied input
 
-        # KEYBOARD_MODE picks what a keypress MEANS, which is a real design
-        # question and not a detail:
-        #
-        #   "cumulative"  each keypress nudges a target by a fixed delta, and the
-        #                 target stays where you left it.  Historical Chrono
-        #                 behaviour, and what the deltas below configure.
-        #   "held"        the input follows the keys currently held down and ramps
-        #                 back when you let go, as in a driving game.  The input
-        #                 is a LEVEL rather than a nudge, and SetGains above is
-        #                 the ramp rate.
-        #
-        # "held" needs the KeyboardMode API (PyChrono build 1187 / Aug 2026 and
-        # later).  On an older PyChrono, say so and carry on cumulatively rather
-        # than dying with an AttributeError.
-        if KEYBOARD_MODE == "held":
-            if hasattr(veh.ChInteractiveDriver, "KeyboardMode_HELD"):
-                driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)
-            else:
-                print('[keyboard] this PyChrono predates KeyboardMode; '
-                      'using "cumulative". Update to build 1187 or later for "held".')
+            # KEYBOARD_MODE picks what a keypress MEANS, which is a real design
+            # question and not a detail:
+            #
+            #   "cumulative"  each keypress nudges a target by a fixed delta, and
+            #                 the target stays where you left it.  Historical
+            #                 Chrono behaviour, and what the deltas below set.
+            #   "held"        the input follows the keys currently held down and
+            #                 ramps back when you let go, as in a driving game.
+            #                 The input is a LEVEL rather than a nudge, and
+            #                 SetGains above is the ramp rate.
+            #
+            # "held" needs the KeyboardMode API (PyChrono build 1187 / Aug 2026
+            # and later).  On an older PyChrono, say so and carry on cumulatively
+            # rather than dying with an AttributeError.
+            if KEYBOARD_MODE == "held":
+                if hasattr(veh.ChInteractiveDriver, "KeyboardMode_HELD"):
+                    driver.SetKeyboardMode(veh.ChInteractiveDriver.KeyboardMode_HELD)
+                else:
+                    print('[keyboard] this PyChrono predates KeyboardMode; '
+                          'using "cumulative". Update to build 1187 or later '
+                          'for "held".')
 
-        steering_time = 1.0  # time to go from 0 to +1 (or from 0 to -1)
-        throttle_time = 1.0  # time to go from 0 to +1
-        braking_time = 0.3   # time to go from 0 to +1
-        driver.SetSteeringDelta(render_step_size / steering_time)
-        driver.SetThrottleDelta(render_step_size / throttle_time)
-        driver.SetBrakingDelta(render_step_size / braking_time)
+            steering_time = 1.0  # time to go from 0 to +1 (or from 0 to -1)
+            throttle_time = 1.0  # time to go from 0 to +1
+            braking_time = 0.3   # time to go from 0 to +1
+            driver.SetSteeringDelta(render_step_size / steering_time)
+            driver.SetThrottleDelta(render_step_size / throttle_time)
+            driver.SetBrakingDelta(render_step_size / braking_time)
 
     else:
         raise ValueError(f"unknown INPUT_SOURCE {INPUT_SOURCE!r}")
@@ -684,7 +741,9 @@ def main():
 #   "crane"    a gantry crane with a swinging payload, and no Chrono::Vehicle
 #              anywhere in it. Watch the load swing as the bridge accelerates;
 #              the console prints the swing angle and the miss distance.
-# The crane has no ChVehicle, so it takes INPUT_SOURCE = "data".
+# Either PLANT takes either INPUT_SOURCE. The crane has no ChVehicle, so it
+# cannot use ChDataDriver or ChInteractiveDriver; it gets the same two inputs
+# from ScriptedInputs and WindowInputs instead, and the loop cannot tell.
 PLANT = "vehicle"
 
 # VEHICLE: choose your car - "hmmwv" | "sedan" | "uazbus" | "gator" | "audi"
@@ -704,8 +763,11 @@ TRANSMISSION = "automatic"
 START_IN_MANUAL_SHIFT = False
 
 # Where do the driver inputs come from?
-#   "data"      Demo 1 - scripted ChDataDriver, no human
-#   "keyboard"  Demo 2 - ChInteractiveDriver, W/A/S/D in the Irrlicht window
+#   "data"      Demo 1 - a scripted table, no human
+#   "keyboard"  Demo 2 - a person at the keys
+# Which class provides it depends on PLANT, and that is the point of Demo 2:
+#   vehicle  ChDataDriver / ChInteractiveDriver, W/A/S/D in the Irrlicht window
+#   crane    ScriptedInputs / WindowInputs, arrow keys in our own small window
 INPUT_SOURCE = "data"
 
 # Demo 2: what a keypress means.  "cumulative" | "held"
