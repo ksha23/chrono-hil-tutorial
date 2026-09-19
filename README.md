@@ -94,7 +94,11 @@ otherwise misses.
 
 `make_slides.py` locates every code excerpt in the deck by anchor text rather
 than by line number, so editing a demo cannot silently rot a slide. Run
-`--check` after touching any file the deck quotes.
+`--check` after touching any file the deck quotes. It needs `python-pptx` and
+`Pillow`, which are deliberately NOT in `environment.yml`: building the deck is
+not part of running the demos, and nobody cloning this to try them should have
+to install a PowerPoint library. `pip install python-pptx Pillow` if you want
+it. `--pdf` additionally drives PowerPoint itself, so it is macOS only.
 
 ## Setup
 

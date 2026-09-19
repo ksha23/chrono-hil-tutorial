@@ -24,7 +24,9 @@ dependencies:
   - python=3.12
   - pychrono=10.0.0=*_1187
   - numpy>=2.0
-  - pygame>=2.6          # the push configurator's panel window
+  - pygame>=2.6          # every input window of our own: the push
+                         # configurator, the manipulation console, and the
+                         # crane's keys when there is no ChVehicle to take them
   - irrlicht=1.8.5       # the 3D window PyChrono renders into
   - pip
   - pip:
