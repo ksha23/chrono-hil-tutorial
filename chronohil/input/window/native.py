@@ -24,10 +24,22 @@ from ...chrono_env import chrono
 
 
 def available():
-    """True when this PyChrono can subclass IEventReceiver."""
+    """True when this PyChrono can SUBCLASS IEventReceiver.
+
+    Instantiating the base is the wrong test and gave the wrong answer on both
+    builds. Without the director it raises AttributeError, because SWIG emitted
+    an abstract class with no constructor. WITH the director it still raises,
+    now RuntimeError, because OnEvent is pure virtual and directors are honest
+    about that. The question is whether a subclass can be made, so ask that.
+    """
     try:
         import pychrono.irrlicht as irr
-        irr.IEventReceiver()
+
+        class _Probe(irr.IEventReceiver):
+            def OnEvent(self, ev):
+                return False
+
+        _Probe()
     except Exception:
         return False
     return True
