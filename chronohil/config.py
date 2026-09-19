@@ -13,7 +13,6 @@
 STEP = 2e-3               # s, the physics step every demo uses
 RENDER_FPS = 50           # the eye does not need the step rate
 HANDLE_SPEED = 1.2        # m/s at full stick, for key-driven dragging
-UDP_PORT = 9870
 
 # The grab spring, and the one number that actually matters about it.
 #

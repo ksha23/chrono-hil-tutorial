@@ -17,13 +17,9 @@
 #     read three numbers from the human  ->  push them into the model
 #     step the model  ->  wait for real time  ->  send some numbers back
 #
-# and "the model" can be anything Chrono can simulate.  This module has two
-# other things to steer, both driven by exactly the same three numbers coming
-# from exactly the same devices:
-#
-#   "rover"  a Viper rover on the same terrain.  Steering and drive speed
-#            instead of steering and throttle -- six independently driven
-#            wheels, a rocker-bogie suspension, and no gearbox anywhere.
+# and "the model" can be anything Chrono can simulate.  This module has one
+# other thing to steer, driven by exactly the same three numbers coming from
+# exactly the same devices:
 #
 #   "crane"  a gantry crane with a payload on a cable.  No Chrono::Vehicle at
 #            all: four rigid bodies, two motors and a distance constraint.
@@ -31,7 +27,7 @@
 #            genuinely hard manual task -- which is the point.  This is the
 #            one to try if you want to feel why HIL work is done at all.
 #
-# All three plants expose the same handful of methods, which is what lets the
+# Both plants expose the same handful of methods, which is what lets the
 # simulation loop in tutorial_HIL_driver.py stay one loop:
 #
 #     apply(inputs)              push steering/throttle/braking into the model
@@ -59,7 +55,7 @@ class VehiclePlant:
     """A wheeled Chrono::Vehicle: the plant Demos 1 and 2 drive.
 
     Thin, because the vehicle model already does everything -- this exists so
-    the rover and the crane have something to look like.
+    the crane has something to look like.
     """
 
     needs_vehicle_vis = True   # wants ChWheeledVehicleVisualSystemIrrlicht
@@ -89,96 +85,6 @@ class VehiclePlant:
 
     def attach(self, vis):
         vis.AttachVehicle(self.vehicle)
-
-
-# =============================================================================
-# The rover plant
-# =============================================================================
-
-
-class RoverPlant:
-    """A Viper rover driven by the same three numbers as the car.
-
-    The mapping is the interesting part.  A rover has no throttle and no
-    gearbox: its six wheels are speed-controlled motors, so "throttle" becomes
-    a commanded wheel speed and "braking" commands zero.  Steering is the one
-    input that means the same thing on both plants.
-
-    ViperDCMotorControl models the motor rather than imposing the speed
-    outright -- it has a stall torque and a no-load speed, so the rover bogs
-    down on a slope exactly as the real thing would.
-    """
-
-    needs_vehicle_vis = False  # a plain ChVisualSystemIrrlicht is enough
-    steps_own_system = False   # the caller steps the ChSystem
-
-    #: rad/s at full throttle. The Viper's own demos use pi, about 0.5 m/s.
-    MAX_WHEEL_SPEED = math.pi
-
-    #: Smallest no-load speed ever commanded, rad/s.
-    #: ViperDCMotorControl is a DC motor model: its torque falls off linearly
-    #: from the stall torque at rest to zero at the no-load speed, which means
-    #: the no-load speed is a divisor. Commanding exactly zero -- which closing
-    #: the throttle otherwise would -- makes that 0/0 at rest, and the whole
-    #: rover goes to NaN on the first step with no error anywhere. Flooring it
-    #: costs nothing physically: at 1e-3 rad/s the motor produces no useful
-    #: torque above a standstill, which is what a closed throttle should do.
-    MIN_NO_LOAD_SPEED = 1e-3
-
-    #: rad at full lock. Viper::m_max_steer_angle is the hard limit; stay under it.
-    MAX_STEER_ANGLE = math.pi / 6
-
-    def __init__(self, system, start, wheel_material=None):
-        import pychrono.robot as robot
-
-        self.WHEELS = (robot.V_LF, robot.V_RF, robot.V_LB, robot.V_RB)
-        self.system = system
-        self.driver = robot.ViperDCMotorControl()
-        self.rover = robot.Viper(system)
-        self.rover.SetDriver(self.driver)
-        if wheel_material is not None:
-            self.rover.SetWheelContactMaterial(wheel_material)
-        self.rover.Initialize(chrono.ChFramed(start.pos, start.rot))
-        self._speed_cmd = 0.0
-
-    def apply(self, inputs):
-        # The vehicle driver's steering is normalized to [-1, 1]; the rover's is
-        # an actual wheel angle in radians, so this is a scale rather than a
-        # pass-through. Getting that wrong is silent: the rover just barely turns.
-        self.driver.SetSteering(inputs.m_steering * self.MAX_STEER_ANGLE)
-        # Throttle sets the speed the motors will pull up to; braking closes
-        # them again. Braking wins, so standing on the brake lets the rover roll
-        # to a stop whatever the throttle says.
-        #
-        # Note what "braking" can and cannot mean here: ViperDriver has no brake
-        # input, so this releases the drive rather than applying a friction
-        # brake. The rover coasts down on rolling resistance instead of stopping
-        # dead, which is the honest behaviour for a machine built this way.
-        target = inputs.m_throttle * (1.0 - inputs.m_braking)
-        self._speed_cmd = max(target * self.MAX_WHEEL_SPEED, self.MIN_NO_LOAD_SPEED)
-        # Per wheel, because a rover can be commanded to skid-steer; here all
-        # four get the same command and the steering angles do the turning.
-        for wheel in self.WHEELS:
-            self.driver.SetMotorNoLoadSpeed(self._speed_cmd, wheel)
-
-    def synchronize(self, t, inputs):
-        pass  # the rover has no Synchronize; Update() below does the work
-
-    def advance(self, step):
-        self.rover.Update()
-
-    def speed(self):
-        v = self.rover.GetChassisVel()
-        return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
-
-    def status(self):
-        return f"wheel cmd {self._speed_cmd:5.2f} rad/s"
-
-    def attach(self, vis):
-        pass  # nothing to attach: the rover's bodies are already in the system
-
-    def chase_target(self):
-        return self.rover.GetChassis().GetBody()
 
 
 # =============================================================================

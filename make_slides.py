@@ -1023,10 +1023,9 @@ def build(check_only=False):
              "driving open loop, which is not human-in-the-loop by our definition.",
              "Obey those and the transport does not matter: a socket, a serial "
              "port, shared memory, a ROS topic, another simulator."],
-            note=["The repository has one of these in its archive, an operator "
-                  "console on UDP, "
-                  "so a second machine can drive the simulation and watch telemetry "
-                  "come back."])
+            note=["Demo 3 is one of these: its input console is a small window "
+                  "of our own that reads the keys and the mouse, hands the loop "
+                  "the same numbers, and takes the readout back."])
 
     showtime(2, "a person driving the vehicle",
              "keyboard straight into ChInteractiveDriver, HMMWV on rigid terrain",

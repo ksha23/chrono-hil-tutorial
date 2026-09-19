@@ -66,7 +66,7 @@ the only version of that threshold worth quoting to anyone;
 
 | path | |
 |---|---|
-| `demos/driver/` | demos 1 and 2, and the vehicle, rover and crane parts |
+| `demos/driver/` | demos 1 and 2, and the vehicle and crane parts |
 | `demos/manipulate/` | demo 3: picking and dragging |
 | `demos/push/` | demo 4: the push rig and its panel |
 | `chronohil/` | everything demos 3 and 4 are assembled from. Portable. Its `__init__.py` is the map of what each file does |
@@ -74,7 +74,7 @@ the only version of that threshold worth quoting to anyone;
 | `tests_parts.py`, `tests_drag.py` | the two regressions that keep coming back; see below |
 | `make_slides.py` | builds the deck; `--pdf` exports it too, `--check` validates it |
 | `experimental/` | the one-line SWIG change, and what it buys |
-| `archive/` | earlier demos, not presented, plus the UDP operator console |
+| `archive/` | earlier demos, not presented |
 | `ASSETS.md` | where the vendored robot meshes and the policy came from |
 
 ## Checking it works
@@ -156,9 +156,8 @@ question and not a detail:
 
 W/A/S/D drive. The arrow keys are the chase camera, not the car.
 
-Six more switches in the same block are worth knowing and are not demos:
-`INPUT_SOURCE = "gamepad"` and `"udp"`, `VEHICLE` and the `SHOW_*` overlay
-flags, `TRANSMISSION`, `SCENE` and `PLANT`.
+Three more switches in the same block are worth knowing and are not demos:
+`VEHICLE` and the `SHOW_*` overlay flags, `TRANSMISSION`, and `PLANT`.
 [demos/driver/README.md](demos/driver/README.md) has the table.
 
 ## Driving something that is not a vehicle
@@ -171,8 +170,8 @@ and it is three decisions.
 **1. Normalise the input.** Pick a small, bounded set of numbers that a device
 produces and a plant consumes, and make it device-independent. This tutorial
 reuses the vehicle convention -- steering, throttle, braking in [-1,1] and
-[0,1] -- so one keyboard, one gamepad and one socket can drive a car, a rover
-and a crane without knowing which is on the other end.
+[0,1] -- so one set of three numbers drives a car and a crane without either
+end knowing what is on the other.
 
 **2. Bind those numbers to actuation.** This is the only plant-specific part,
 and Chrono gives you four routes into a model, plus one that is not in the loop
@@ -182,7 +181,6 @@ at all:
 |---|---|---|
 | a driver input | `ChDriver`, `ChInteractiveDriver` | the HMMWV |
 | a motor setpoint | `ChLinkMotor*` + `ChFunctionSetpoint` | the crane |
-| a robot model's own driver | `ViperDCMotorControl.SetMotorNoLoadSpeed` | the rover |
 | a force on a body | `AddAccumulator`, `AccumulateForce` | the push rig |
 | a constraint to a handle you move | `ChLinkTSDA` | the mouse drag |
 | _a pose you set outright_ | `SetPos`, `SetRot` | _placement, and not in the loop_ |
@@ -209,8 +207,8 @@ class Plant:
     def attach(self, vis):            ...  # anything the visualiser must be told
 ```
 
-The two plants with no chase camera of their own add a seventh,
-`chase_target()`, naming the body the camera should follow.
+The plant with no chase camera of its own adds a seventh, `chase_target()`,
+naming the body the camera should follow.
 
 ```python
 while vis.Run():
@@ -265,19 +263,13 @@ scores you.
 
 ### What the numbers MEAN is a decision, and it has a cost
 
-A shared convention buys you one console and one input path for every plant. It
-charges you for it at the binding:
+A shared convention buys you one input path for every plant. It charges you
+for it at the binding: the crane computes `throttle - braking`, because it has
+one travel axis and the convention gave it two pedals. No crane operator would
+recognise that.
 
-- The crane computes `throttle - braking`, because it has one travel axis and
-  the convention gave it two pedals. No crane operator would recognise that.
-- The rover's "braking" releases the drive rather than applying a brake, because
-  `ViperDriver` has no brake input. It coasts down on rolling resistance instead
-  of stopping dead, which is the honest behaviour for a machine built that way.
-- The rover's steering is an angle in radians, not a normalised [-1,1], so the
-  binding scales it. Getting that wrong is silent: the rover just barely turns.
-
-Set `PLANT = "crane"` or `"rover"` in `tutorial_HIL_driver.py` to drive either.
-Neither has a `ChVehicle`, so they take `INPUT_SOURCE = "udp"` or `"data"`.
+Set `PLANT = "crane"` in `tutorial_HIL_driver.py` to drive it. It has no
+`ChVehicle`, so it takes `INPUT_SOURCE = "data"`.
 
 ## The Go2's locomotion policy
 

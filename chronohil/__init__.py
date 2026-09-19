@@ -38,7 +38,6 @@ WHAT IS IN EACH FILE, in the order it is worth reading them:
 
     input/          ways a person's numbers reach the simulation:
       keys.py         a small pygame window of our own. Portable, always works.
-      udp.py          another process over a socket. Portable.
       window/         the 3D window itself, when the build allows it. Read
                       window/__init__.py first: it picks a backend and it is
                       the only file in the project that names an OS.
@@ -50,7 +49,7 @@ in three modules beside the script, so that script can be read top to bottom.
 
 from .chrono_env import chrono, require_window
 from .config import (GRAB_MAX_SPEED, GRAB_MIN_MASS, GRAB_OMEGA, GRAB_REACH, GRAB_ZETA,
-                     HANDLE_SPEED, RENDER_FPS, STEP, UDP_PORT)
+                     HANDLE_SPEED, RENDER_FPS, STEP)
 from .controllers import FreeDriveJoint, LimpJoint, LockedJoint, StanceHolder
 from .picking import Grabber, pick_along_ray, pick_at_crosshair, pick_near_ray
 from .policy import Go2Policy, find_go2_policy
@@ -58,7 +57,7 @@ from .scenes import ground_plane, scene_arm, scene_go2, scene_place
 from .urdf import make_chrono_safe_urdf
 
 __all__ = [
-    "chrono", "require_window", "STEP", "RENDER_FPS", "HANDLE_SPEED", "UDP_PORT",
+    "chrono", "require_window", "STEP", "RENDER_FPS", "HANDLE_SPEED",
     "GRAB_OMEGA", "GRAB_ZETA", "GRAB_REACH", "GRAB_MAX_SPEED", "GRAB_MIN_MASS",
     "pick_along_ray", "pick_near_ray", "pick_at_crosshair", "Grabber",
     "LimpJoint", "FreeDriveJoint", "LockedJoint", "StanceHolder",

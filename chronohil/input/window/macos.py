@@ -83,7 +83,6 @@ class MacOSWindowInput(CameraRay):
             self.EDGE = dict(edges)
         self.prev = {k: False for k in self.EDGE}
         self.prev_mouse = False
-        self.addr = ("direct", 0)
         self.last = (0.0, 0.0, 0.0)
         self._rect = None
         self._rect_age = 0
@@ -134,7 +133,7 @@ class MacOSWindowInput(CameraRay):
     # ray_through() comes from CameraRay: identical on every backend, so it
     # lives in camera.py rather than three times over. See that file.
 
-    # -- Console-compatible surface -----------------------------------------
+    # -- the surface the demo loops poll ------------------------------------
     def poll(self):
         for name, cmd in self.EDGE.items():
             now = self._key(name)

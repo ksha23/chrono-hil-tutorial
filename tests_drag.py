@@ -51,7 +51,6 @@ class ScriptedCursor:
     poll = lambda self: (0.0, 0.0, 0.0)
     take_commands = lambda self: []
     send = lambda self, *a, **k: None
-    addr = ("test", 0)
 
 
 spec = importlib.util.spec_from_file_location(

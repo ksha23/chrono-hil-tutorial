@@ -39,9 +39,3 @@ are the upstream ones: there is no visual mesh for `link0` or for `link8`, and
 the collision set adds `link0`. Chrono draws the collision hull where a visual
 mesh is missing.
 
-## What is NOT vendored
-
-The Mcity digital twin, which `SCENE = "mcity"` can drive on. It is generated
-from the published dataset by the converter in the Chrono tree;
-`demos/driver/hil_scene.py` has the commands. Without it the scene falls back
-to flat terrain rather than failing.

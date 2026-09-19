@@ -21,9 +21,10 @@ class LocalInput:
     PyChrono still cannot read the Irrlicht window (SWIG directors are off, and
     getCursorControl() returns an unwrapped object), so the keys have to be read
     by something else -- but that something does not have to be another process.
-    pygame and Irrlicht coexist happily here; only the socket was ever needed.
+    pygame and Irrlicht coexist happily in a single process.
 
-    Same interface as Console, so the loop cannot tell them apart.
+    Same interface as the 3D-window backends, so the loop cannot tell them
+    apart.
     """
 
     KEYS = None          # filled in on first use, so pygame is imported lazily
@@ -41,7 +42,6 @@ class LocalInput:
         }
         self.commands = []
         self.last = (0.0, 0.0, 0.0)
-        self.addr = ("local", 0)
         self.status = ""
         print("[input] local window open - keep IT focused, not the 3D view")
 

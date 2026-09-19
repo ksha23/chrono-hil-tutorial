@@ -33,7 +33,7 @@ import pychrono.irrlicht as irr
 
 from chronohil import (FreeDriveJoint, HANDLE_SPEED, RENDER_FPS, STEP, chrono,
                        require_window, scene_arm, scene_go2, scene_place)
-from chronohil.input import Console, LocalInput, open_window_input
+from chronohil.input import LocalInput, open_window_input
 from chronohil.watchdog import Watchdog
 from demos.manipulate.dragging import Manipulator
 import chronohil.scenes as scenes
@@ -46,7 +46,7 @@ SCENES = {
 }
 
 
-def main(mode, headless_script=None, use_udp=False, console=None):
+def main(mode, headless_script=None, console=None):
     system = chrono.ChSystemNSC()
     system.SetGravitationalAcceleration(chrono.ChVector3d(0, 0, -9.81))
     system.SetCollisionSystemType(chrono.ChCollisionSystem.Type_BULLET)
@@ -99,17 +99,13 @@ def main(mode, headless_script=None, use_udp=False, console=None):
     # have chosen one:
     #   console= passed in   a test drives the real press/drag path directly
     #   headless_script=     nobody is driving; the script says what happens
-    #   neither              UDP, or the 3D window, or our own input window
+    #   neither              the 3D window, or our own input window
     if console is None and headless_script is None:
-        if use_udp:
-            console = Console()
-        else:
-            # Returns None when this build cannot read its own 3D window, which
-            # is not an error: the local input window covers every platform.
-            console = open_window_input(vis, title, 1280, 800) or LocalInput()
+        # Returns None when this build cannot read its own 3D window, which is
+        # not an error: the local input window covers every platform.
+        console = open_window_input(vis, title, 1280, 800) or LocalInput()
     sel = 0             # which of `grabbable` the X key has selected
     lift = 0.0          # ] / [ toggle the handle moving up / down in Z
-    seen_packet = False
     system.DoStepDynamics(STEP)          # the collision system must exist to raycast
 
     print(f"\n{hint}")
@@ -149,10 +145,6 @@ def main(mode, headless_script=None, use_udp=False, console=None):
         else:
             s, th, br = console.poll()
             cmds = console.take_commands()
-            if not seen_packet and console.addr is not None:
-                seen_packet = True
-                if use_udp:
-                    print(f"[udp] first packet from {console.addr[0]} - input is getting through")
 
         for c in cmds:
             if c == "n":
@@ -262,12 +254,11 @@ def main(mode, headless_script=None, use_udp=False, console=None):
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
-    use_udp = "--udp" in sys.argv
     mode = args[0] if args else "arm"
     if "-h" in sys.argv or "--help" in sys.argv:
         print(__doc__ or "")
         print(f"usage: python demos/manipulate/main.py "
-              f"[{' | '.join(SCENES)}] [--udp]\n"
+              f"[{' | '.join(SCENES)}]\n"
               "\n"
               "  go2       a Unitree Go2 held up by a trained locomotion policy.\n"
               "            Drag a leg and it steps to keep its feet.\n"
@@ -277,9 +268,6 @@ if __name__ == "__main__":
               "            you pose the dead weight by hand.\n"
               "  place     kinematic placement, no dynamics.\n"
               "\n"
-              "  --udp     take input from a second process instead of the\n"
-              "            window (see archive/operator_console.py)\n"
-              "\n"
               "In the 3D window: drag with the mouse to pull on a link, Q/E turn\n"
               "the drag plane to reach nearer or further, A/D/W/S/R/F move the\n"
               "camera, ESC quits.")
@@ -287,9 +275,9 @@ if __name__ == "__main__":
     if mode not in SCENES:
         raise SystemExit(
             f"usage: python demos/manipulate/main.py "
-            f"[{' | '.join(SCENES)}] [--udp]\n"
-            "  default: an input window opens beside the 3D view, one process\n"
-            "  --udp:   input from archive/operator_console.py in a second terminal")
+            f"[{' | '.join(SCENES)}]\n"
+            "  an input window opens beside the 3D view when this build cannot\n"
+            "  read the 3D window itself; either way it is one process")
     if mode == "go2":
         import os
         urdf = os.environ.get("GO2_URDF", scenes.GO2_URDF)
@@ -297,4 +285,4 @@ if __name__ == "__main__":
             raise SystemExit(f"Go2 URDF not found at {urdf}\n"
                              "  see ASSETS.md; it should be vendored in go2_assets/")
         scenes.GO2_URDF = urdf
-    main(mode, use_udp=use_udp)
+    main(mode)

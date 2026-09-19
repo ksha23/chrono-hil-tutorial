@@ -395,7 +395,6 @@ class Win32WindowInput(CameraRay):
             self.EDGE = dict(edges)
         self.prev = {k: False for k in self.EDGE}
         self.prev_mouse = False
-        self.addr = ("direct", 0)
         self.last = (0.0, 0.0, 0.0)
         print("[input] reading mouse and keys from Win32 - "
               "click straight on the 3D window")
@@ -443,7 +442,7 @@ class Win32WindowInput(CameraRay):
     # -- the ray Irrlicht would not give us ----------------------------------
     # ray_through() comes from CameraRay, shared with every other backend.
 
-    # -- Console-compatible surface -----------------------------------------
+    # -- the surface the demo loops poll ------------------------------------
     def poll(self):
         for name, cmd in self.EDGE.items():
             now = self._key(name)

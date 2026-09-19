@@ -11,12 +11,10 @@
 """Ways a person's numbers reach the simulation.
 
     keys    a small window of our own, portable, always available
-    udp     another process over a socket, portable
     window  the 3D window itself, when the build allows it (see .window)
 """
 
 from .keys import LocalInput
-from .udp import Console
 from .window import open_window_input
 
-__all__ = ["LocalInput", "Console", "open_window_input"]
+__all__ = ["LocalInput", "open_window_input"]

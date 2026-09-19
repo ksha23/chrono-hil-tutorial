@@ -525,7 +525,6 @@ class X11WindowInput(CameraRay):
             self.EDGE = dict(edges)
         self.prev = {k: False for k in self.EDGE}
         self.prev_mouse = False
-        self.addr = ("direct", 0)
         self.last = (0.0, 0.0, 0.0)
         if self.w.id() is None:
             # Not fatal: the window is found again on a later frame, and in
@@ -557,7 +556,7 @@ class X11WindowInput(CameraRay):
     # -- the ray Irrlicht would not give us ----------------------------------
     # ray_through() comes from CameraRay, shared with every other backend.
 
-    # -- Console-compatible surface -----------------------------------------
+    # -- the surface the demo loops poll ------------------------------------
     def poll(self):
         for name, cmd in self.EDGE.items():
             now = self._key(name)

@@ -30,11 +30,10 @@
 # Irrlicht event receiver already binds those calls, and vis.AttachDriver()
 # is what wires it up.  See KEYBOARD_HELP below for the mapping.
 #
-# For a device Chrono does not know about (INPUT_SOURCE = "udp"), nothing is
-# wired up for you, which is the point of it.  Gearbox below is the adapter that
-# turns a one-character command from such a device into the calls above, so the
-# operator console can shift gears over the same UDP socket it already uses for
-# steering and throttle.
+# For a device Chrono does not know about, nothing is wired up for you, which
+# is the point of it.  Gearbox below is the adapter such a device needs: it
+# turns a one-character command into the calls above, so a gear can travel
+# alongside steering and throttle on whatever carries them.
 # =============================================================================
 
 import pychrono.vehicle as veh
@@ -72,7 +71,7 @@ class Gearbox:
     `gearbox.describe()` without a branch.
     """
 
-    #: single-character commands, as sent by archive/operator_console.py
+    #: single-character commands, the wire form for a device of your own
     COMMANDS = {
         "u": "up",        # shift up
         "d": "down",      # shift down
@@ -120,9 +119,9 @@ class Gearbox:
     def command(self, what):
         """Apply one command by name; unknown names are ignored.
 
-        Ignoring rather than raising is deliberate: these arrive off a socket
-        from a device we do not control, and a typo on the operator's end
-        should not take the simulation down.
+        Ignoring rather than raising is deliberate: these arrive from a device
+        we do not control, and a typo on the operator's end should not take the
+        simulation down.
         """
         if not self.present:
             return
@@ -144,7 +143,7 @@ class Gearbox:
             self.auto.SetShiftMode(mm if self.auto.GetShiftMode() == am else am)
 
     def command_char(self, ch):
-        """Apply one single-character command (the UDP wire form)."""
+        """Apply one single-character command (the wire form above)."""
         name = self.COMMANDS.get(ch)
         if name:
             self.command(name)
