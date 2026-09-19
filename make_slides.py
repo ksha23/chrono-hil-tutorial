@@ -236,16 +236,37 @@ def chrome(prs, slide, page):
     r.font.size = Pt(10)
 
 
+# **bold** inside prose. Backticks already marked code; there was no way to
+# stress a phrase that is NOT code, so a roadmap could not say which demo
+# closes a section without setting it in Consolas and lying about what it is.
+_EMPH = re.compile(r"\*\*(.+?)\*\*", re.S)
+
+
 def rich(par, text, base_size=16):
-    """Write text where `backticked` spans become Consolas runs."""
+    """Write text where `backticked` spans are Consolas and **spans** are bold."""
+    def run(s, size, bold=False, mono=False):
+        r = par.add_run()
+        r.text = s
+        r.font.size = Pt(size)
+        if bold:
+            r.font.bold = True
+        if mono:
+            r.font.name = "Consolas"
+
     for i, chunk in enumerate(text.split("`")):
         if not chunk:
             continue
-        r = par.add_run()
-        r.text = chunk
-        r.font.size = Pt(base_size if i % 2 == 0 else base_size - 2)
-        if i % 2 == 1:
-            r.font.name = "Consolas"
+        if i % 2 == 1:                     # inside backticks: code, verbatim
+            run(chunk, base_size - 2, mono=True)
+            continue
+        pos = 0
+        for m in _EMPH.finditer(chunk):
+            if m.start() > pos:
+                run(chunk[pos:m.start()], base_size)
+            run(m.group(1), base_size, bold=True)
+            pos = m.end()
+        if pos < len(chunk):
+            run(chunk[pos:], base_size)
 
 
 def note_height(lines, size=16):
@@ -256,7 +277,8 @@ def note_height(lines, size=16):
     note box fits roughly 105 characters per line.
     """
     per = max(40, int(105 * 16.0 / size))
-    rows = sum(1 + max(0, (len(ln.replace("`", "")) - 1)) // per for ln in lines)
+    rows = sum(1 + max(0, (len(ln.replace("`", "").replace("**", "")) - 1)) // per
+               for ln in lines)
     return 0.30 * rows + 0.18
 
 
@@ -684,32 +706,24 @@ def build(check_only=False):
             break
     finish(s)
 
+    # One roadmap, not two. The sections and the demos were on separate slides,
+    # which spent two minutes on navigation before any content and made the
+    # reader hold the mapping between them in their head. Pairing each section
+    # with the demo that closes it is the mapping, and it fits on one slide.
     bullets("What this talk covers",
             ["1.  `What counts as human-in-the-loop`, and what it demands of a "
              "simulator. A definition we will hold every demo against.",
-             "2.  `The clock.` Why pacing comes first, and the levers Chrono gives "
-             "you for making a step cheap enough to pace at all.",
-             "3.  `Getting a person's input into the state.` The driver surface, the "
-             "input devices Chrono already speaks, and what to do about the ones it "
-             "does not.",
+             "2.  `The clock.` Why pacing comes first, and the levers for making a "
+             "step cheap enough to pace at all.  **Demo 1: the same drive twice, "
+             "paced and unpaced.**",
+             "3.  `Getting a person's input into the state.` The driver surface, "
+             "the devices Chrono speaks, and the ones it does not.  **Demo 2: "
+             "keyboard into a vehicle, the textbook case.**",
              "4.  `Reaching into the scene.` Picking a body, pulling on it, and a "
-             "one-line gap in PyChrono that this talk closes.",
-             "Four demos along the way. All the code is in one repository you "
-             "can clone."],
-            note=["The order is deliberate. The clock comes before the input, "
-                  "because input into a simulation that cannot hold real time is "
-                  "not human-in-the-loop, whatever else it is."])
-
-    bullets("The four demos",
-            ["Demo 1.  `Does the clock matter.` The same drive twice, paced and "
-             "unpaced.",
-             "Demo 2.  `A person driving.` Keyboard into a vehicle, the textbook case.",
-             "Demo 3.  `Reaching in.` Drag a quadruped's leg while a trained "
-             "locomotion policy fights you, and a Franka arm with the motors on or off.",
-             "Demo 4.  `How hard can you shove it.` A measured impulse at a point you "
-             "choose, and the magnitude where recovery stops.",
-             "The demo numbers are their own: demo 1 closes the clock section, "
-             "demo 2 the input section, demos 3 and 4 the last one."],
+             "one-line gap in PyChrono that this talk closes.  **Demo 3: drag a "
+             "quadruped's leg while its policy fights you. Demo 4: a measured "
+             "shove, and where recovery stops.**",
+             ],
             shots=["hmmwv.png", "demo_go2.png", "demo_arm.png", "demo_push.png"])
 
     # =========================================================================
@@ -861,12 +875,10 @@ def build(check_only=False):
              "drawing, minus what you leave as margin for a bad step. Contacts, "
              "solver iterations, terrain and drawing all come out of the same one.",
              "So the hard half is the only half left: make the step cheap enough "
-             "that there is slack to sleep off in the first place.",
-             "What follows is the set of levers Chrono gives you for that, in "
-             "rough order of how much they usually buy."],
-            note=["Reach for them in that order. People tend to start at the "
-                  "solver, which is near the bottom of the list and the easiest "
-                  "place to spend an afternoon for nothing."])
+             "that there is slack to sleep off. The levers for that are next, in "
+             "rough order of what they buy -- and **take them in that order.** "
+             "People start at the solver, which is near the bottom of the list "
+             "and the easiest place to spend an afternoon for nothing."])
 
     bullets("The levers, in rough order of payoff",
             ["1.  `Step size`. Everything scales with steps per second. The largest "
@@ -934,12 +946,11 @@ def build(check_only=False):
     label(s, 0.50, 4.45, 3.90, "IN the loop", 15, color=ACCENT)
     label(s, 4.72, 4.45, 3.90, "IN the loop", 15, color=ACCENT)
     label(s, 8.94, 4.45, 3.90, "not in the loop", 15)
-    note_box(s, ["The left column is the privileged one, and it is privileged for "
-                 "a reason: vehicles are this lab's bread and butter, so they are "
-                 "what got a purpose-built human-input class. That machinery lives "
-                 "in Chrono::Vehicle, so a crane or a robot cannot reach it.",
-                 "The middle column is the general one, and it is how everything "
-                 "that is not a vehicle gets a person into its loop.",
+    # Why the left column is privileged is the next slide's whole first note,
+    # and saying it twice in ninety seconds is how a talk runs long.
+    note_box(s, ["The middle column is the general one: it is how everything that "
+                 "is not a vehicle gets a person into its loop, and the left one "
+                 "is reachable only from Chrono::Vehicle.",
                  "The right-hand column is honest about itself: nothing reacts "
                  "to a pose you set, so nothing closes the loop."], 5.15)
     finish(s)
