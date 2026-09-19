@@ -94,6 +94,11 @@ class NativeWindowInput(CameraRay):
         self.prev = {k: False for k in self.EDGE}
         self.prev_mouse = False
         self.last = (0.0, 0.0, 0.0)
+        # The loop reads console.addr to report the first UDP packet, and
+        # every other backend carries it. Without it this one raises
+        # AttributeError on the first step -- a break that only appears on
+        # the branch where this backend is the one selected.
+        self.addr = ("direct", 0)
         print("[input] reading the 3D window through Irrlicht (no OS calls)")
 
     # -- the same methods the macOS backend exposes --------------------------
