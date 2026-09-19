@@ -232,6 +232,8 @@ def main(mode, headless_script=None, use_udp=False, console=None):
             if not kinematic:
                 drag.draw_link()
             vis.BeginScene(); vis.Render(); vis.EndScene()
+            if hasattr(console, "frame_rendered"):
+                console.frame_rendered()   # the ray needs a live view matrix
             if console is not None:
                 b = grabbable[sel]
                 bp = b.GetPos()

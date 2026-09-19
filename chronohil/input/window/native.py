@@ -96,11 +96,16 @@ class NativeWindowInput:
         self.prev = {k: False for k in self.EDGE}
         self.prev_mouse = False
         self.last = (0.0, 0.0, 0.0)
+        self._rendered = False
         print("[input] reading the 3D window through Irrlicht (no OS calls)")
 
     # -- the same methods the macOS backend exposes --------------------------
     def _key(self, name):
         return self.K[name] in self.rx.keys
+
+    def frame_rendered(self):
+        """The loop calls this after its first BeginScene/Render/EndScene."""
+        self._rendered = True
 
     def mouse_down(self):
         return self.rx.down
@@ -112,24 +117,39 @@ class NativeWindowInput:
         return None
 
     def ray_through(self, px, py, reach=60.0):
-        cam = self.vis.GetActiveCamera()
-        cp, ct = cam.getAbsolutePosition(), cam.getTarget()
-        eye = chrono.ChVector3d(cp.X, cp.Y, cp.Z)
-        fwd = chrono.ChVector3d(ct.X - cp.X, ct.Y - cp.Y, ct.Z - cp.Z)
-        n = fwd.Length()
+        """The ray Irrlicht already knows how to build.
+
+        On stock PyChrono this is twenty lines of arithmetic: take the camera's
+        position and target, build a basis, apply the FOV and aspect ratio, turn
+        the pixel into normalised device coordinates. All of it is a
+        reimplementation of something Irrlicht does internally, and all of it is
+        a chance to get a sign or an aspect ratio subtly wrong.
+
+        With ISceneCollisionManager exposed it is one call. The manager is the
+        scene's own, so it uses the same projection the scene was rendered with
+        by construction, which is the part hand-rolled maths cannot promise.
+        """
+        # The camera's view matrix is not set up until the scene has been
+        # rendered once, and before that the manager returns a ray built from a
+        # stale transform: same answer wherever the camera is. The demo loop
+        # renders before anything can be clicked, but a caller that asks earlier
+        # deserves an answer rather than a wrong one.
+        if not self._rendered:
+            return None
+        cm = self.vis.GetDevice().getSceneManager().getSceneCollisionManager()
+        line = cm.getRayFromScreenCoordinates(irr.vector2di(int(px), int(py)),
+                                              self.vis.GetActiveCamera())
+        a, b = line.start, line.end
+        eye = chrono.ChVector3d(a.X, a.Y, a.Z)
+        far = chrono.ChVector3d(b.X, b.Y, b.Z)
+        # Irrlicht ends the ray at the camera's far plane, which is thousands of
+        # metres away. Shorten it: a ray that long picks up scenery behind the
+        # thing being aimed at.
+        d = far - eye
+        n = d.Length()
         if n < 1e-9:
             return None
-        fwd = fwd / n
-        right = fwd.Cross(chrono.ChVector3d(0, 0, 1))
-        right = (chrono.ChVector3d(1, 0, 0) if right.Length() < 1e-6
-                 else right / right.Length())
-        up = right.Cross(fwd)
-        tan_v = math.tan(cam.getFOV() * 0.5)
-        ndc_x = (2.0 * px / self.cw) - 1.0
-        ndc_y = 1.0 - (2.0 * py / self.ch)
-        d = fwd + right * (ndc_x * tan_v * cam.getAspectRatio()) + up * (ndc_y * tan_v)
-        d = d / d.Length()
-        return eye, eye + d * reach
+        return eye, eye + d * (reach / n)
 
     def poll(self):
         for name, cmd in self.EDGE.items():

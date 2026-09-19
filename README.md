@@ -5,6 +5,37 @@ response changes what that person does next, and the cycle closes fast enough
 that they can keep reacting. That is what this tutorial means by
 human-in-the-loop, and everything here is an instance of it.
 
+> ### You are on the `chrono-swig-fixes` branch
+>
+> This branch runs against a Chrono built with two extra lines in its SWIG
+> interface. `main` runs against stock PyChrono and is the version to use if you
+> just want the demos.
+>
+> | | `main` | this branch |
+> |---|---|---|
+> | Chrono | stock PyChrono 10.0.0 | built from `ksha23/chrono`, branch `feature/swig-irrlicht-event-receiver` |
+> | mouse on the 3D window | macOS only, 135 lines of Quartz and AppKit | any platform Irrlicht supports, 19 lines |
+> | screen pixel to world ray | 19 lines of camera arithmetic | one call to Irrlicht's own collision manager |
+>
+> Both use the same demo code. `chronohil/input/window/` picks the backend at
+> run time, so nothing above it knows or cares which Chrono it is running on.
+>
+> ### Building it
+>
+> ```bash
+> git clone https://github.com/ksha23/chrono.git
+> cd chrono && git checkout feature/swig-irrlicht-event-receiver
+> # needs urdfdom for the robot scenes:
+> conda install -c conda-forge urdfdom urdfdom_headers console_bridge tinyxml2
+> cmake -B build -DCH_ENABLE_MODULE_PYTHON=ON -DCH_ENABLE_MODULE_IRRLICHT=ON \
+>                -DCH_ENABLE_MODULE_PARSERS=ON -DCMAKE_BUILD_TYPE=Release
+> cmake --build build -j
+> export PYTHONPATH=$PWD/build/bin
+> ```
+>
+> The demos print which backend they chose at startup. On this branch you should
+> see `reading the 3D window through Irrlicht (no OS calls)`.
+
 ## Run the demos
 
 ```bash
