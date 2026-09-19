@@ -8,8 +8,14 @@ The mouse path is what every headless test misses, and it is where the last
 three bugs lived. mouse_down() is polled once per physics step, so counting
 those calls is a clock that needs nothing from the demo.
 """
-import sys, importlib.util
-sys.path.insert(0, "/Users/kylesha/chrono-hil-tutorial")
+import os, sys, importlib.util
+
+# The repo root, taken from this file rather than written out. It was written
+# out, as one author's /Users/... path, and that is how this test came to fail
+# on Windows before it had run a single physics step -- with a ModuleNotFound
+# for chronohil, from a checkout where chronohil was sitting right beside it.
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
 from chronohil.chrono_env import chrono
 from chronohil import STEP
 
@@ -49,7 +55,7 @@ class ScriptedCursor:
 
 
 spec = importlib.util.spec_from_file_location(
-    "dm", "/Users/kylesha/chrono-hil-tutorial/demos/manipulate/main.py")
+    "dm", os.path.join(HERE, "demos", "manipulate", "main.py"))
 dm = importlib.util.module_from_spec(spec)
 sys.modules["dm"] = dm
 sys.argv = ["main.py", MODE]

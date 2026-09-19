@@ -63,6 +63,21 @@ Check with `python -c "import pychrono.vehicle, pychrono.irrlicht"`.
 **Intel Macs:** `osx-64` PyChrono is frozen at 8.0.0 (2023) and much of the API
 used here does not exist in it. Apple Silicon, Linux and Windows all have 10.0.0.
 
+**Windows: run the demos from the desktop, not over ssh.** Every demo here
+works on Windows, including the headless ones, but only from a session that has
+a real desktop. In a Windows OpenSSH shell you land in session 0, a service
+window station, and there `import pychrono` never returns: it hangs inside the
+extension modules that link a graphics stack, `vsg3d` first and `fsi` next if
+you stub that one out. It is not slow, it is stopped, and PyChrono's own
+`try: from . import vsg3d / except: pass` cannot catch a DLL that never
+finishes loading. So `--headless` on Windows means "no window is opened", not
+"no desktop is needed". If you must drive it remotely, use RDP, or hand the
+command to the console session with
+`schtasks /create /tn run /tr <your.bat> /sc once /st 00:00 /it /f` and
+`schtasks /run /tn run`. The one thing that does work over ssh is
+`python demos/driver/tutorial_HIL_driver.py --help`, because that exits before
+the import. (Measured on 10.0.26200, `pychrono 10.0.0=py312h418371c_1187`.)
+
 ## Demos 1 and 2: the clock, and a person driving
 
 Both are `tutorial_HIL_driver.py`, configured in the `CONFIGURATION` block at

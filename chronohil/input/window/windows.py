@@ -11,12 +11,12 @@
 """Reading the 3D window by asking Win32. Optional, and the last resort.
 
 WHAT WAS TESTED, AND WHAT WAS NOT. This file was written blind, with no Windows
-machine to hand, and has since been run on one: Windows 10.0.26200, Python
-3.10.8 (MSC v.1933, 64-bit), a 1920x1080 display at 100% scaling. It was
-exercised against a real top-level window -- a tkinter one, because the three
-questions here are about a WINDOW and any window with a known title answers
-them, while PyChrono on Windows is a conda install and a 500 MB download that
-would prove nothing further about user32. What that run covered:
+machine to hand, and has since been run on one: Windows 10.0.26200, a 1920x1080
+display at 100% scaling. It was first exercised against a tkinter window under
+Python 3.10.8, because the three questions here are about a WINDOW and any
+window with a known title answers them. It has since been run against Chrono's
+own window, under the environment.yml env (Python 3.12.14, pychrono 10.0.0
+build 1187, irrlicht 1.8.5). What the tkinter run covered:
 
     the window found by exact title and by substring, ours preferred over an
     identically titled window in another process; the client rect matching the
@@ -30,13 +30,29 @@ would prove nothing further about user32. What that run covered:
     poll(), camera_nudge(), plane_spin() and the EDGE commands, each edge
     firing once and not again while the key stayed down.
 
-STILL UNTESTED, and worth saying plainly:
+AN ACTUAL IRRLICHT WINDOW, which used to head the untested list and no longer
+does. Against demos/manipulate/main.py's own window -- same title, same
+1280x800, same Initialize-then-AttachSystem ordering:
 
-    An actual Irrlicht window. So: that Chrono's SetWindowTitle reaches the
-    Win32 caption FindWindowW matches on, and that Irrlicht's client area is
-    the 1280x800 the demo asked for. The second is harmless either way, since
-    _Window.pixel() scales whatever the client turns out to be onto the demo's
-    grid, and that scaling IS tested.
+    open_window_input() selected this backend, because the conda build has no
+    IEventReceiver director and native.available() is False; FindWindowW
+    matched Chrono's caption EXACTLY, on the first try, so SetWindowTitle does
+    reach the Win32 caption; window_rect() came back (320, 151, 1280, 800), so
+    Irrlicht's client area IS the size the demo asked for and pixel() is
+    scaling by 1; the cursor driven to the client centre and to both far
+    corners read back as (640,400), (0,0) and (1279,799), and as None one
+    pixel outside the left and bottom edges; ray_through() on those pixels fed
+    pick_along_ray() and hit panda_link4, link3 then link1 walking DOWN the
+    window, which is the order they stand in.
+
+    Then the whole of demos/push/main.py interactively, with a person at the
+    machine: both windows opened (Irrlicht plus the pygame configurator, both
+    enumerable as ours), the aim point followed their clicks onto three
+    different bodies, and their arrow keys walked the azimuth to +60 -- so the
+    panel and the 3D window DO coexist here, as the note at the bottom of this
+    file predicted they would.
+
+STILL UNTESTED, and worth saying plainly:
 
     A display with DPI scaling. The machine reachable for this runs at 100%,
     where an unaware process and an aware one see the same numbers, so nothing
@@ -47,16 +63,21 @@ STILL UNTESTED, and worth saying plainly:
     flipping SwapMouseButton and injecting presses, not by plugging in a mouse
     and setting it up in Control Panel.
 
-    demos/push/panel.py. There is no PanelPointer here on purpose, for the
-    reasons at the bottom of this note, and whether the pygame panel does keep
-    receiving its own clicks alongside an Irrlicht window is a claim about
-    pygame and Irrlicht, not about anything in this file.
+    A SLIDER DRAG on demos/push/panel.py. The panel window opens beside the 3D
+    one and the demo runs, which is the part that was in doubt; whether pygame
+    still delivers a press to a slider is a claim about pygame and Irrlicht,
+    not about anything in this file, and no one has dragged one yet. There is
+    no PanelPointer here on purpose, for the reasons at the bottom of this
+    note.
 
-    GetCursorPos in a session with no input desktop. A Windows OpenSSH shell
-    lands in session 0, where GetCursorPos simply fails and every window_rect()
-    is None; the tests here had to be run through a scheduled task in the
-    console session to mean anything. Nothing in a session like that has a 3D
-    window to point at either, so this file does not try to detect it.
+    GetCursorPos in a session with no input desktop -- and it never will be
+    tested, because nothing gets that far. A Windows OpenSSH shell lands in
+    session 0, where `import pychrono` itself HANGS forever inside the
+    extension DLLs that link against a graphics stack (vsg3d first; stub that
+    and fsi is next). So no demo, headless ones included, reaches this file
+    from an ssh shell. Everything here was run through a scheduled task in the
+    console session instead. This file does not try to detect that, because a
+    session like that has no 3D window to point at either.
 
 That this file is built to fail quietly still matters: open_input() returns
 None for anything it does not like, chronohil.input.window falls through to the
