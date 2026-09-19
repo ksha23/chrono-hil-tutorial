@@ -284,7 +284,7 @@ Neither has a `ChVehicle`, so they take `INPUT_SOURCE = "udp"` or `"data"`.
 The quadruped is driven by a trained locomotion policy, not by a PD holding a
 pose. That is the difference between a robot that stiffens against a shove and
 one that picks a foot up and steps into it, and the push rig reports it as a
-number: the stance PD recovers from 325 N and goes over at 330, the policy
+number: the stance PD recovers from 600 N and goes over at 625, the policy
 recovers from 1850 N and goes over at 1900.
 
 The checkpoint is vendored: `go2_assets/go2_policy.pt`, committed so the demos

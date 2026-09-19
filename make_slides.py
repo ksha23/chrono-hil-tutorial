@@ -101,10 +101,17 @@ N = {
     # and the trained locomotion policy. The policy pair reproduces on demand;
     # the PD pair does not any more -- see "The stance PD numbers" in
     # demos/push/README.md for what was measured instead, and when.
-    "push_fwd_ok": "325 N",
-    "push_fwd_fail": "330 N",
-    "push_lat_ok": "280 N",
-    "push_lat_fail": "290 N",
+    # RE-MEASURED after collision was enabled on every Go2 link. The old pair,
+    # 325 N recovering and 330 failing, was taken when only the feet and torso
+    # collided; with every link solid a toppling robot catches itself on its own
+    # thighs, and forward robustness nearly doubled. Lateral barely moved, which
+    # is consistent: sideways it falls past its legs rather than onto them.
+    # Both controllers now run on the same solver, so this is a like-for-like
+    # comparison; verified that iteration count makes no difference to the PD.
+    "push_fwd_ok": "600 N",
+    "push_fwd_fail": "625 N",
+    "push_lat_ok": "275 N",
+    "push_lat_fail": "300 N",
     "pol_fwd_ok": "1850 N",
     "pol_fwd_fail": "1900 N",
     "pol_lat_ok": "1100 N",

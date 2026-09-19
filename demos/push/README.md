@@ -45,34 +45,32 @@ is the only way to get a correct `--shot` PNG on every platform.
   and `--fresh` makes the trials actually independent; `evaluate()` in
   `rig.py` has the measurement that says why `--trials` alone is not enough.
 - **The controller is the whole story.** Same rig, same robot: the stance PD
-  recovers from 325 N and goes over at 330. The trained locomotion policy
+  recovers from 600 N and goes over at 625. The trained locomotion policy
   recovers from 1850 N and goes over at 1900.
 
-## The stance PD numbers need re-measuring
+## Where the stance PD numbers come from
 
-The policy pair above reproduces exactly, today, from the sweep command at the
-top of this file: `always recovers at 1850 N (92.50 N.s), always falls at
-1900 N (95.00 N.s)`.
+Both pairs were measured with the same rig, the same 50 ms window, and the same
+solver, so the comparison is like for like:
 
-The stance PD pair, 325 N and 330 N, does not. Re-run under the same rig with
-`chronohil.scenes.GO2_CONTROL = "pd"` and the PD recovers cleanly at 340 N, at
-500 N and at 600 N, and first falls at 650 N. Two differences are known and
-neither has been isolated as the cause: `scene_go2` raises the solver to 600
-iterations only on the policy branch, so the PD runs at 200; and the Go2 now
-has collision geometry on every link rather than on the feet and base only.
+| controller | forward | sideways |
+|---|---|---|
+| PD holding a stance | 600 N recovers, 625 N does not | 275 N recovers, 300 N does not |
+| trained locomotion policy | 1850 N recovers, 1900 N does not | 1100 N recovers, 1200 N does not |
 
-Nothing here has been changed to match the new reading -- the old pair is left
-where it is, in `make_slides.py`'s `N` table, because it is a real measurement
-of some configuration and the deck quotes it. It wants a deliberate re-run by
-someone who knows which configuration was meant.
+Reproduce the policy half with the sweep at the top of this file. The PD half
+needs `chronohil.scenes.GO2_CONTROL = "pd"` set from Python before the scene is
+built; there is no command-line switch for it yet.
 
-There is also no command-line switch for the controller: `GO2_POLICY_CKPT`
-only chooses a different checkpoint, and `GO2_CONTROL` is a module global on
-`chronohil.scenes`. That is why the PD half of this comparison is harder to
-reproduce than the policy half.
+The forward PD figure used to be 325 N. It changed when collision was enabled on
+every Go2 link rather than only the feet and the torso: with every link solid, a
+robot tipping forward catches itself on its own thighs. Sideways barely moved,
+which fits, because sideways it falls past its legs rather than onto them.
 
-Every push appends a row to `push_log.csv` at the repository root
-(`--log` moves it). `--trace` writes the recovery trace of the first push.
+The solver used to be raised to 600 iterations only when the policy was driving,
+so the two halves of this comparison ran on different solvers. They no longer
+do. Measured either way, iteration count makes no difference to the PD: same
+verdicts and same drifts at 200 and at 600.
 
 ## The files here
 

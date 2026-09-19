@@ -152,6 +152,15 @@ def scene_go2(system):
     # shove either fails to move it or tips it over, while a policy can pick a
     # foot up and step into the push. Everything downstream is unchanged --
     # both are ticked by the loop through system.stance_holders.
+    # SAME SOLVER FOR WHATEVER IS HOLDING THE ROBOT UP. This used to be raised
+    # only on the policy branch, so the stance PD ran at 200 iterations while the
+    # policy ran at 600 -- and the push rig's whole point is to compare the two.
+    # Measured, it makes no difference to the PD (identical verdicts and drifts at
+    # 200 and at 600), so nothing about that comparison changes; it just stops
+    # being a comparison with a confound in it.
+    it = system.GetSolver().AsIterative()
+    if it:
+        it.SetMaxIterations(max(600, it.GetMaxIterations()))
     ckpt = find_go2_policy() if globals().get("GO2_CONTROL", "policy") == "policy" else None
     if ckpt:
         try:
@@ -164,9 +173,6 @@ def scene_go2(system):
             # 8 s of sim goes from 1.4 s to 4.5 s of wall clock, still comfortably
             # faster than real time. Beyond ~700 N it diverges again; that is a
             # solver limit, not the policy failing, and it should be reported as one.
-            it = system.GetSolver().AsIterative()
-            if it:
-                it.SetMaxIterations(max(600, it.GetMaxIterations()))
             print(f"[go2] locomotion policy: {os.path.basename(ckpt)}")
             hint = "drag a leg; the policy steps to keep its feet"
         except Exception as exc:
