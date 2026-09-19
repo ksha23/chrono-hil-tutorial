@@ -22,7 +22,7 @@ one of three answers, in this order:
              per platform, and about five times the code:
                  macos.py    Quartz and AppKit     (tested)
                  linux.py    X11 through ctypes    (tested, Xorg only)
-                 windows.py  Win32 through ctypes  (UNTESTED, see its header)
+                 windows.py  Win32 through ctypes  (tested, see its header)
     None     no in-window picking. The demo falls back to its own window and
              keyboard, which works everywhere.
 

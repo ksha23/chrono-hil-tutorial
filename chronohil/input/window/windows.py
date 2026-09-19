@@ -8,25 +8,69 @@
 # in the LICENSE file at the top level of the distribution and at
 # http://projectchrono.org/license-chrono.txt.
 # =============================================================================
-"""Reading the 3D window by asking Win32. Optional, a last resort, and UNTESTED.
+"""Reading the 3D window by asking Win32. Optional, and the last resort.
 
-UNTESTED IS MEANT LITERALLY. No Windows machine was reachable while this was
-written, so every line below is written from the documented behaviour of
-user32 and from the shape of the two siblings that ARE tested (macos.py on an
-M-series Mac, linux.py on Xorg 21.1). Nothing here has ever run. Treat a
-disagreement between this file and a real Windows box as this file being wrong.
+WHAT WAS TESTED, AND WHAT WAS NOT. This file was written blind, with no Windows
+machine to hand, and has since been run on one: Windows 10.0.26200, Python
+3.10.8 (MSC v.1933, 64-bit), a 1920x1080 display at 100% scaling. It was
+exercised against a real top-level window -- a tkinter one, because the three
+questions here are about a WINDOW and any window with a known title answers
+them, while PyChrono on Windows is a conda install and a 500 MB download that
+would prove nothing further about user32. What that run covered:
 
-That is also why it is built to fail quietly: open_input() returns None for
-anything it does not like, chronohil.input.window falls through to the portable
-pygame input window, and the demo keeps working with keyboard selection. The
-worst outcome this file is allowed to have is no mouse on the 3D view.
+    the window found by exact title and by substring, ours preferred over an
+    identically titled window in another process; the client rect matching the
+    window's real position and client size, across a move, a minimise and a
+    restore, and None once the window was gone; the cursor driven to known
+    screen points with SetCursorPos and read back as the right client pixel at
+    the centre and all four corners, and as None one pixel outside each edge;
+    a window half the size of the demo's pixel grid scaling onto it exactly;
+    a synthetic button press read by mouse_down(), with the buttons the usual
+    way round and with SwapMouseButton on; every key in K driving
+    poll(), camera_nudge(), plane_spin() and the EDGE commands, each edge
+    firing once and not again while the key stayed down.
+
+STILL UNTESTED, and worth saying plainly:
+
+    An actual Irrlicht window. So: that Chrono's SetWindowTitle reaches the
+    Win32 caption FindWindowW matches on, and that Irrlicht's client area is
+    the 1280x800 the demo asked for. The second is harmless either way, since
+    _Window.pixel() scales whatever the client turns out to be onto the demo's
+    grid, and that scaling IS tested.
+
+    A display with DPI scaling. The machine reachable for this runs at 100%,
+    where an unaware process and an aware one see the same numbers, so nothing
+    below distinguishes them. See _Window.rect() for why the arithmetic should
+    survive one anyway, and treat that as reasoning, not as a measurement.
+
+    A physical left-handed mouse. mouse_down()'s swap handling was measured by
+    flipping SwapMouseButton and injecting presses, not by plugging in a mouse
+    and setting it up in Control Panel.
+
+    demos/push/panel.py. There is no PanelPointer here on purpose, for the
+    reasons at the bottom of this note, and whether the pygame panel does keep
+    receiving its own clicks alongside an Irrlicht window is a claim about
+    pygame and Irrlicht, not about anything in this file.
+
+    GetCursorPos in a session with no input desktop. A Windows OpenSSH shell
+    lands in session 0, where GetCursorPos simply fails and every window_rect()
+    is None; the tests here had to be run through a scheduled task in the
+    console session to mean anything. Nothing in a session like that has a 3D
+    window to point at either, so this file does not try to detect it.
+
+That this file is built to fail quietly still matters: open_input() returns
+None for anything it does not like, chronohil.input.window falls through to the
+portable pygame input window, and the demo keeps working with keyboard
+selection. The worst outcome this file is allowed to have is no mouse on the
+3D view.
 
 NOTHING IN demos/ IMPORTS THIS DIRECTLY. It is selected, if at all, by
 chronohil.input.window, and the demos see the same interface either way. The
 same three questions as everywhere else, answered by user32:
 
     GetCursorPos                    where the cursor is, in screen pixels
-    GetAsyncKeyState(VK_LBUTTON)    whether the left button is down
+    GetAsyncKeyState + SM_SWAPBUTTON   whether the DRAG button is down; the
+                                    two are needed together, see mouse_down()
     GetAsyncKeyState(vk)            whether a key is down, focus or not
     FindWindowW / EnumWindows       which HWND is ours, by the title Chrono set
     GetClientRect + ClientToScreen  where its drawable area sits, and how big
@@ -63,6 +107,8 @@ _DWORD = ctypes.c_ulong
 _LONG = ctypes.c_long
 
 _VK_LBUTTON = 0x01
+_VK_RBUTTON = 0x02
+_SM_SWAPBUTTON = 23                 # GetSystemMetrics: are the buttons swapped?
 _DOWN = 0x8000                      # the high bit of GetAsyncKeyState's SHORT
 
 
@@ -76,6 +122,7 @@ class _RECT(ctypes.Structure):
 
 
 _USER32 = None
+_ENUMPROC = None                    # the EnumWindows callback type, see _user32
 
 
 def unsupported():
@@ -87,7 +134,7 @@ def unsupported():
 
 def _user32():
     """user32 with its prototypes declared, loaded at most once."""
-    global _USER32
+    global _USER32, _ENUMPROC
     if _USER32 is not None:
         return _USER32
     u = ctypes.windll.user32
@@ -114,6 +161,17 @@ def _user32():
     u.GetClientRect.restype = ctypes.c_int
     u.ClientToScreen.argtypes = [_HWND, ctypes.POINTER(_POINT)]
     u.ClientToScreen.restype = ctypes.c_int
+    u.GetSystemMetrics.argtypes = [ctypes.c_int]
+    u.GetSystemMetrics.restype = ctypes.c_int
+    # The EnumWindows callback type, built here rather than at import because
+    # WINFUNCTYPE is the stdcall factory and CPython only defines it on
+    # Windows. _user32() is only ever reached past unsupported()'s guard, so
+    # this line runs nowhere else. Declaring it also lets EnumWindows itself be
+    # prototyped like every other call above, instead of relying on ctypes'
+    # default marshalling for a function pointer and a pointer-sized LPARAM.
+    _ENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_int, _HWND, ctypes.c_ssize_t)
+    u.EnumWindows.argtypes = [_ENUMPROC, ctypes.c_ssize_t]
+    u.EnumWindows.restype = ctypes.c_int
     _USER32 = u
     return u
 
@@ -129,7 +187,16 @@ def _find_window(title):
 
     Windows of THIS process win, which is a guarantee neither sibling can
     make: a second copy of the demo, or an editor showing this file with the
-    title in its tab, cannot steal the match.
+    title in its tab, cannot steal the match. Measured: with a second process
+    holding a window of the very same title, this still returned ours.
+
+    A window is findable the instant it exists. The macOS sibling is not --
+    there a freshly created window is missing from CGWindowListCopyWindowInfo
+    until it has been pumped for a few frames, which cost an hour of looking
+    for a permissions problem that was not there. On Windows the same probe hit
+    on its first try, 0.000 s after tkinter returned the window, because the
+    window IS the kernel object EnumWindows walks. Callers still retry, since
+    that costs nothing and _Window.id() throttles the misses anyway.
     """
     u = _user32()
     exact = u.FindWindowW(None, title)
@@ -141,10 +208,6 @@ def _find_window(title):
             return exact
     want = title.lower()
     found = [None, None]            # [ours, anyone's]
-
-    # WINFUNCTYPE (stdcall) is required for the EnumWindows callback and only
-    # exists on Windows, so the type is built here rather than at import.
-    proto = ctypes.WINFUNCTYPE(ctypes.c_int, _HWND, ctypes.c_ssize_t)
 
     def visit(hwnd, _lparam):
         if not u.IsWindowVisible(hwnd):
@@ -165,8 +228,8 @@ def _find_window(title):
             found[1] = hwnd
         return 1
 
-    cb = proto(visit)               # held until EnumWindows returns
-    u.EnumWindows(cb, ctypes.c_ssize_t(0))      # LPARAM is pointer-sized
+    cb = _ENUMPROC(visit)           # held in a local until EnumWindows returns
+    u.EnumWindows(cb, 0)
     return found[0] or found[1] or (exact if exact else None)
 
 
@@ -210,10 +273,17 @@ class _Window:
         chrome by hand because CGWindowBounds is the whole window; here Win32
         draws the distinction for us.
 
-        DPI: GetCursorPos and ClientToScreen report in the SAME space as each
-        other, whether or not this process is DPI aware, so their difference is
-        right either way -- and the width below is the real client width, so a
-        window that Windows scaled still maps onto the demo's pixels.
+        DPI, and this is reasoning rather than a measurement: the test machine
+        runs at 100%, where a scaled and an unscaled reading are the same
+        number. All three calls this class makes -- GetCursorPos, ClientToScreen
+        and GetClientRect -- answer in the DPI space of the CALLING PROCESS, and
+        there is only one process here, so a display Windows scales moves all
+        three together and their differences survive. (The probe reported this
+        python.exe as PROCESS_DPI_UNAWARE, so on a 150% display Windows would
+        virtualise every one of those three by the same 1.5.) What is left for
+        pixel() is that the client may not be content_w by content_h, which is
+        why it scales rather than subtracts; that part IS measured, on a window
+        deliberately made half the size of the demo's grid.
         """
         now = time.monotonic()
         if self._rect is not None and now - self._rect_at < self.RECT_S:
@@ -260,6 +330,12 @@ def _pressed(vk):
     callers in the same frame would steal from each other. GetAsyncKeyState
     reads the physical keyboard and does not care which window has focus,
     which is the property this whole package is built on.
+
+    The restype is a SIGNED short, so a held key comes back as -32768 or
+    -32767, never as 0x8000. The mask still works: Python's & is defined on
+    two's complement of unbounded width, so -32768 & 0x8000 is 32768. Spelled
+    out because the alternative reading -- that the sign makes this always
+    false -- is the obvious one, and it is wrong.
     """
     return bool(_user32().GetAsyncKeyState(vk) & _DOWN)
 
@@ -269,13 +345,14 @@ class Win32WindowInput(CameraRay):
 
     The surface is the macOS backend's, method for method, because the demos
     are written against one console interface and must not be able to tell
-    which backend answered. See the module docstring: UNTESTED.
+    which backend answered. Every method below was run against a real window;
+    what that run could not reach is listed in the module docstring.
     """
 
     # Windows virtual key codes. Irrlicht's own KEY_KEY_A / KEY_LEFT constants
     # are these same numbers -- Irrlicht took its key enum from Win32 -- so
-    # this table and native.py's are the same table, which is a small comfort
-    # for a file nobody has been able to run.
+    # this table and native.py's are the same table. Every entry was pressed
+    # with keybd_event on the test machine and came back through _key().
     K = {"left": 0x25, "up": 0x26, "right": 0x27, "down": 0x28,
          "space": 0x20, "esc": 0x1B,
          "lbracket": 0xDB, "rbracket": 0xDD,        # VK_OEM_4 / VK_OEM_6
@@ -311,13 +388,29 @@ class Win32WindowInput(CameraRay):
         return False if vk is None else _pressed(vk)
 
     def mouse_down(self):
-        # The PHYSICAL left button. Windows swaps the buttons for left-handed
-        # users at the message layer (WM_LBUTTONDOWN follows the primary
-        # button), and the documentation is not clear about whether the async
-        # key state follows it too. Untested here, like everything else in
-        # this file: if a swapped-button machine cannot drag, this line is the
-        # first suspect, and GetSystemMetrics(SM_SWAPBUTTON) is the fix.
-        return _pressed(_VK_LBUTTON)
+        """Is the button a person DRAGS with down?
+
+        Not simply VK_LBUTTON, and this was the one real bug the first run on
+        Windows turned up. GetAsyncKeyState reports the PHYSICAL buttons and
+        ignores the left-handed swap; the message layer and GetKeyState do
+        follow it. Measured on 10.0.26200 with SwapMouseButton(TRUE) set, one
+        MOUSEEVENTF_LEFTDOWN injected, then both states read:
+
+            GetAsyncKeyState:  LBUTTON True   RBUTTON False
+            GetKeyState:       LBUTTON False  RBUTTON True
+
+        So on a swapped machine VK_LBUTTON is the button that opens context
+        menus and the one being dragged with is VK_RBUTTON. Reading VK_LBUTTON
+        unconditionally, as this file did when it was written blind, gives a
+        left-handed user a demo whose drag fires off their menu button.
+
+        SM_SWAPBUTTON is re-read every call rather than cached at startup: it
+        is a read of a value win32k keeps in shared memory, no dearer than the
+        key state beside it, and it means someone who changes the setting while
+        the demo is running is not left without a mouse until they restart.
+        """
+        swapped = _user32().GetSystemMetrics(_SM_SWAPBUTTON)
+        return _pressed(_VK_RBUTTON if swapped else _VK_LBUTTON)
 
     def window_rect(self):
         return self.w.rect()
